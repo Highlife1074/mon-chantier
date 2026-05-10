@@ -3,39 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chantier Pro - Gestion Spatiale & Planning</title>
-    
-    <!-- Chargement des bibliothèques externes -->
+    <title>Chantier Pro - Pilotage Expert</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/konva@9/konva.min.js"></script>
-    
-    <!-- Lien vers votre fichier CSS personnalisé -->
     <link rel="stylesheet" href="style.css">
-
     <style>
-        /* Petit correctif pour s'assurer que les sections cachées ne s'affichent pas */
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
+        .tab-content { display: none !important; }
+        .tab-content.active { display: flex !important; flex-direction: column; height: 100%; }
+        .gantt-row { display: grid; grid-template-columns: 200px 1fr; border-bottom: 1px solid #e2e8f0; }
     </style>
 </head>
-<body class="bg-slate-50 h-screen flex overflow-hidden font-sans">
+<body class="bg-slate-100 h-screen flex overflow-hidden font-sans">
 
-    <!-- BARRE LATÉRALE (SIDEBAR) -->
+    <!-- SIDEBAR -->
     <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20">
-        <div class="p-6 text-2xl font-bold border-b border-slate-800 flex items-center gap-3">
-            <span class="text-blue-500">🏗️</span>
-            Chantier Pro
+        <div class="p-6 text-2xl font-bold border-b border-slate-800 flex items-center gap-2">
+            <span class="text-blue-500">🏗️</span> Chantier Pro
         </div>
-        
         <nav class="flex-1 p-4 space-y-2 mt-4">
             <button onclick="switchTab('plan')" class="nav-btn flex items-center w-full p-3 rounded-lg bg-blue-600 text-white" id="btn-plan">
-                <span class="mr-3">📍</span> Plan Interactif
+                <span class="mr-3">📍</span> Plan & Pièces
             </button>
             <button onclick="switchTab('gantt')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-300 hover:bg-slate-800" id="btn-gantt">
-                <span class="mr-3">📅</span> Planning Gantt
+                <span class="mr-3">📅</span> Planning (Anti-Collision)
             </button>
             <button onclick="switchTab('sequences')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-300 hover:bg-slate-800" id="btn-sequences">
-                <span class="mr-3">⚙️</span> Séquences
+                <span class="mr-3">⚙️</span> Séquences Travaux
             </button>
             <button onclick="switchTab('sd')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-300 hover:bg-slate-800" id="btn-sd">
                 <span class="mr-3">📄</span> Shop Drawings
@@ -44,111 +37,115 @@
                 <span class="mr-3">⚠️</span> Points Bloquants
             </button>
         </nav>
-
-        <div class="p-4 border-t border-slate-800 text-xs text-slate-500 text-center">
-            Connecté à Firebase Cloud
-        </div>
     </aside>
 
-    <!-- ZONE PRINCIPALE -->
+    <!-- MAIN CONTENT -->
     <main class="flex-1 flex flex-col overflow-hidden">
-        
-        <!-- ENTÊTE -->
         <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm">
-            <h2 id="current-tab-title" class="text-xl font-semibold text-slate-800">Plan Interactif</h2>
-            <div id="upload-status" class="text-sm text-blue-600 font-medium"></div>
+            <h2 id="current-tab-title" class="text-xl font-semibold text-slate-800 font-bold">Plan & Pièces</h2>
         </header>
 
-        <!-- CONTENU DES ONGLETS -->
-        <section class="flex-1 p-6 overflow-auto">
+        <section class="flex-1 p-6 overflow-hidden">
             
-            <!-- ONGLET 1 : PLAN INTERACTIF -->
-            <div id="tab-plan" class="tab-content active h-full flex flex-col">
-                <div id="drag-drop-zone" class="flex-1 border-4 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center text-slate-400 transition-all bg-white shadow-inner">
-                    <p class="text-2xl mb-2">📥</p>
-                    <p class="text-lg font-medium">Glissez votre plan ici (PDF ou Image)</p>
-                    <p class="text-sm opacity-60 mt-1">Le plan sera sauvegardé sur Firebase Storage</p>
+            <!-- ONGLET 1 : PLAN -->
+            <div id="tab-plan" class="tab-content active">
+                <div id="drag-drop-zone" class="flex-1 border-4 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center text-slate-400 bg-white mb-4">
+                    <p class="text-lg">Glissez votre plan ici pour commencer</p>
                 </div>
-                
-                <!-- Le canvas Konva s'affichera ici une fois le plan chargé -->
-                <div id="canvas-container" class="hidden w-full h-full shadow-lg rounded-xl overflow-hidden bg-slate-200"></div>
-                
-                <div class="mt-4 flex gap-4">
-                    <button id="btn-add-piece" class="hidden bg-blue-600 text-white px-6 py-2 rounded-lg font-bold shadow hover:bg-blue-700">
-                        + Créer une pièce
-                    </button>
+                <div id="canvas-container" class="hidden flex-1 shadow-2xl rounded-xl overflow-hidden bg-slate-200 border border-slate-300"></div>
+                <div id="piece-editor" class="hidden mt-4 p-4 bg-white rounded-lg shadow border flex gap-4 items-center">
+                    <input type="text" id="new-piece-name" placeholder="Nom de la pièce" class="border p-2 rounded">
+                    <select id="new-piece-seq" class="border p-2 rounded select-seq-list">
+                        <option value="">Choisir une séquence</option>
+                    </select>
+                    <input type="date" id="new-piece-date" class="border p-2 rounded">
+                    <button onclick="saveNewPiece()" class="bg-blue-600 text-white px-4 py-2 rounded font-bold">Valider la pièce</button>
                 </div>
             </div>
 
-            <!-- ONGLET 2 : PLANNING GANTT -->
+            <!-- ONGLET 2 : GANTT (ANTI-COLLISION) -->
             <div id="tab-gantt" class="tab-content">
-                <div class="bg-white p-8 rounded-xl shadow border border-slate-200">
-                    <h3 class="text-2xl font-bold mb-4">Planning de production</h3>
-                    <div id="gantt-container" class="h-96 w-full bg-slate-50 border rounded flex items-center justify-center text-slate-400">
-                        Le diagramme de Gantt se génère ici
+                <div class="bg-white p-6 rounded-xl shadow border h-full overflow-auto">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-xl font-bold">Planning Automatique</h3>
+                        <span class="text-xs text-slate-400 italic">Collision évitée si la ressource est identique[cite: 1]</span>
+                    </div>
+                    <div id="gantt-render" class="space-y-4">
+                        <!-- Le planning calculé s'affiche ici -->
                     </div>
                 </div>
             </div>
 
             <!-- ONGLET 3 : SÉQUENCES -->
-            <div id="tab-sequences" class="tab-content">
-                <div class="bg-white p-8 rounded-xl shadow border border-slate-200">
-                    <h3 class="text-2xl font-bold mb-6">Paramétrage des séquences</h3>
-                    <p class="text-slate-600">Définissez ici l'ordre des tâches par défaut (ex: Cloisons → Électricité → Sol)[cite: 1].</p>
+            <div id="tab-sequences" class="tab-content overflow-auto">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-xl shadow border">
+                        <h3 class="text-xl font-bold mb-4">Paramétrage des Travaux</h3>
+                        <div class="space-y-4">
+                            <input type="text" id="seq-name" placeholder="Nom du pack (ex: Finitions)" class="w-full border p-2 rounded font-bold">
+                            <div id="tasks-list" class="space-y-2">
+                                <div class="flex gap-2 items-center bg-slate-50 p-2 rounded">
+                                    <input type="text" placeholder="Tâche" class="w-1/3 border p-1 rounded t-name">
+                                    <input type="number" placeholder="Jours" class="w-16 border p-1 rounded t-days">
+                                    <input type="text" placeholder="Ent." class="w-1/4 border p-1 rounded t-ent">
+                                    <label class="text-[10px] flex flex-col items-center">
+                                        <input type="checkbox" class="t-overlap"> Overlap
+                                    </label>
+                                </div>
+                            </div>
+                            <button onclick="addTaskRow()" class="text-blue-600 text-sm font-bold">+ Ajouter une étape</button>
+                            <button onclick="saveSequence()" class="w-full bg-blue-600 text-white py-3 rounded font-bold mt-4 shadow-lg">Enregistrer le modèle[cite: 1]</button>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow border">
+                        <h3 class="text-xl font-bold mb-4">Modèles Enregistrés</h3>
+                        <div id="list-sequences" class="space-y-2"></div>
+                    </div>
                 </div>
             </div>
 
             <!-- ONGLET 4 : SHOP DRAWINGS -->
             <div id="tab-sd" class="tab-content">
-                <div class="bg-white p-8 rounded-xl shadow border border-slate-200">
-                    <h3 class="text-2xl font-bold mb-6">Suivi des Shop Drawings</h3>
-                    <p class="text-slate-600">Liste des plans d'exécution et liaison avec les pièces du plan[cite: 1].</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 h-full">
+                    <div class="bg-white p-6 rounded-xl shadow border">
+                        <h3 class="text-xl font-bold mb-4">Liaison SD</h3>
+                        <div class="space-y-4">
+                            <input type="text" id="sd-ref" placeholder="Réf du plan d'exécution" class="w-full border p-2 rounded">
+                            <select id="sd-piece" class="w-full border p-2 rounded select-pieces-list"></select>
+                            <button onclick="saveSD()" class="w-full bg-green-600 text-white py-2 rounded font-bold">Enregistrer le SD[cite: 1]</button>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow border overflow-auto" id="list-sd"></div>
                 </div>
             </div>
 
-            <!-- ONGLET 5 : POINTS BLOQUANTS -->
+            <!-- ONGLET 5 : BLOQUANTS -->
             <div id="tab-issues" class="tab-content">
-                <div class="bg-white p-8 rounded-xl shadow border border-slate-200">
-                    <h3 class="text-2xl font-bold text-red-600 mb-6">Points Bloquants</h3>
-                    <p class="text-slate-600">Gestion des litiges et problèmes techniques par zone[cite: 1].</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 h-full">
+                    <div class="bg-white p-6 rounded-xl shadow border">
+                        <h3 class="text-xl font-bold mb-4 text-red-600">Signaler un Blocage</h3>
+                        <div class="space-y-4">
+                            <select id="issue-piece" class="w-full border p-2 rounded select-pieces-list"></select>
+                            <textarea id="issue-desc" placeholder="Pourquoi est-ce bloqué ?" class="w-full border p-2 rounded h-32"></textarea>
+                            <button onclick="saveIssue()" class="w-full bg-red-600 text-white py-3 rounded font-bold shadow-lg">Créer l'alerte[cite: 1]</button>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow border overflow-auto" id="list-issues"></div>
                 </div>
             </div>
 
         </section>
     </main>
 
-    <!-- LOGIQUE DE NAVIGATION (TAB SWITCHING) -->
     <script>
         function switchTab(tabId) {
-            // Cacher tous les contenus
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            // Désactiver tous les boutons
-            document.querySelectorAll('.nav-btn').forEach(el => {
-                el.classList.remove('bg-blue-600', 'text-white');
-                el.classList.add('text-slate-300', 'hover:bg-slate-800');
-            });
-
-            // Afficher l'onglet actif
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('bg-blue-600', 'text-white'));
             document.getElementById('tab-' + tabId).classList.add('active');
-            // Activer le bouton
-            const btn = document.getElementById('btn-' + tabId);
-            btn.classList.add('bg-blue-600', 'text-white');
-            btn.classList.remove('text-slate-300', 'hover:bg-slate-800');
-
-            // Changer le titre de l'entête
-            const titles = {
-                'plan': 'Plan Interactif',
-                'gantt': 'Planning Gantt',
-                'sequences': 'Paramétrage des Séquences',
-                'sd': 'Shop Drawings',
-                'issues': 'Points Bloquants'
-            };
-            document.getElementById('current-tab-title').innerText = titles[tabId];
+            document.getElementById('btn-' + tabId).classList.add('bg-blue-600', 'text-white');
+            document.getElementById('current-tab-title').innerText = document.getElementById('btn-' + tabId).innerText;
         }
     </script>
-
-    <!-- Chargement de votre logique Firebase et Dessin -->
     <script type="module" src="app.js"></script>
-
 </body>
 </html>
