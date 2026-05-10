@@ -1,1 +1,26 @@
+/* Styles pour la zone de dessin */
+#canvas-container {
+    background-color: #e2e8f0;
+    border: 2px solid #cbd5e1;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    position: relative;
+    cursor: crosshair;
+}
 
+/* Animation pour le glisser-déposer */
+.drag-over {
+    border: 4px dashed #3b82f6 !important;
+    background-color: #eff6ff !important;
+}
+
+/* Style des points bloquants (pastilles rouges) */
+.issue-badge {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.2); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 1; }
+}
