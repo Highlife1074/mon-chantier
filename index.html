@@ -1,223 +1,108 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chantier Pro - Pilotage Expert</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/konva@9/konva.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .tab-content { display: none !important; }
+        .tab-content.active { display: flex !important; flex-direction: column; height: 100%; }
+    </style>
+</head>
+<body class="bg-slate-100 h-screen flex overflow-hidden font-sans">
 
-const firebaseConfig = {
-    apiKey: "AIzaSyB7hNu1hPJ_Cqbjqm_6cUN9BW_s77xjphE",
-    authDomain: "planning-c2fc1.firebaseapp.com",
-    projectId: "planning-c2fc1",
-    storageBucket: "planning-c2fc1.firebasestorage.app",
-    messagingSenderId: "1098649670059",
-    appId: "1:1098649670059:web:0bd00a157faff09b7242ee"
-};
+    <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20">
+        <div class="p-6 text-xl font-bold border-b border-slate-800">🏗️ Pilotage Chantier</div>
+        <nav class="flex-1 p-4 space-y-2 mt-4">
+            <button onclick="switchTab('plan')" class="nav-btn flex items-center w-full p-3 rounded-lg bg-blue-600 text-white" id="btn-plan">📍 Plan & Pièces</button>
+            <button onclick="switchTab('gantt')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-300 hover:bg-slate-800" id="btn-gantt">📅 Planning 6j/7</button>
+            <button onclick="switchTab('sequences')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-300 hover:bg-slate-800" id="btn-sequences">⚙️ Séquences</button>
+            <button onclick="switchTab('issues')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-300 hover:bg-slate-800" id="btn-issues">⚠️ Base Bloquants</button>
+        </nav>
+    </aside>
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const storage = getStorage(app);
+    <main class="flex-1 flex flex-col overflow-hidden">
+        <header class="h-14 bg-white border-b border-slate-200 flex items-center px-8 justify-between shadow-sm">
+            <h2 id="current-tab-title" class="text-lg font-bold text-slate-700 font-bold">Plan & Pièces</h2>
+            <div class="text-[10px] text-slate-400 font-mono">CALENDRIER : LUN-SAM</div>
+        </header>
 
-let allPieces = [], allSequences = [], allIssues = [];
-let tempCoords = null;
-let selectedPieceId = null;
-
-// --- DESSIN ---
-let stage = new Konva.Stage({ container: 'canvas-container', width: 1000, height: 700 });
-let layer = new Konva.Layer();
-stage.add(layer);
-
-// --- HELPER : CALENDRIER 6 JOURS (Sauf Dimanche) ---
-function addWorkDays(startDate, days) {
-    let date = new Date(startDate);
-    let added = 0;
-    while (added < days) {
-        date.setDate(date.getDate() + 1);
-        if (date.getDay() !== 0) added++; // On n'incrémente pas si c'est Dimanche
-    }
-    return date;
-}
-
-// --- FONCTIONS GLOBALES ---
-window.addTaskRow = () => {
-    const div = document.createElement('div');
-    div.className = "flex gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200 items-end";
-    div.innerHTML = `
-        <div class="flex-1"><input type="text" class="w-full border p-1 rounded t-name"></div>
-        <div class="w-20"><input type="number" class="w-full border p-1 rounded t-days"></div>
-        <div class="w-24"><input type="text" class="w-full border p-1 rounded t-ent"></div>
-        <div class="w-32"><select class="w-full border p-1 rounded t-type"><option value="FS">Fin-Début</option><option value="SS">Début-Début</option></select></div>
-        <div class="w-20"><input type="number" value="0" class="w-full border p-1 rounded t-lag"></div>
-        <div class="flex items-center mb-1"><input type="checkbox" class="t-overlap ml-2"></div>`;
-    document.getElementById('tasks-list').appendChild(div);
-};
-
-window.saveSequence = async () => {
-    const name = document.getElementById('seq-name').value;
-    const tasks = Array.from(document.querySelectorAll('#tasks-list > div')).map(row => ({
-        name: row.querySelector('.t-name').value,
-        days: parseInt(row.querySelector('.t-days').value) || 1,
-        ent: row.querySelector('.t-ent').value,
-        type: row.querySelector('.t-type').value,
-        lag: parseInt(row.querySelector('.t-lag').value) || 0,
-        overlap: row.querySelector('.t-overlap').checked
-    }));
-    if (name) await addDoc(collection(db, "sequences"), { name, tasks });
-    alert("Séquence enregistrée !");
-};
-
-window.saveIssue = async () => {
-    const desc = document.getElementById('issue-desc').value;
-    if (desc) await addDoc(collection(db, "issues"), { desc, pieceId: null });
-    document.getElementById('issue-desc').value = "";
-};
-
-window.assignIssue = async (issueId) => {
-    if (!selectedPieceId) return alert("Veuillez d'abord cliquer sur une pièce sur le plan !");
-    await updateDoc(doc(db, "issues", issueId), { pieceId: selectedPieceId });
-    alert("Bloquant assigné à la pièce !");
-};
-
-window.saveNewPiece = async () => {
-    const nom = document.getElementById('new-piece-name').value;
-    const seqId = document.getElementById('new-piece-seq').value;
-    const date = document.getElementById('new-piece-date').value;
-    if (nom && tempCoords && seqId && date) {
-        await addDoc(collection(db, "pieces"), { nom, x: tempCoords.x, y: tempCoords.y, seqId, startDate: date });
-        document.getElementById('piece-editor').classList.add('hidden');
-    }
-};
-
-window.saveSD = async () => {
-    const ref = document.getElementById('sd-ref').value;
-    const pieceId = document.getElementById('sd-piece').value;
-    if (ref && pieceId) await addDoc(collection(db, "sd"), { ref, pieceId });
-};
-
-// --- LOGIQUE PLAN & DROP ---
-const dropZone = document.getElementById('drag-drop-zone');
-dropZone.ondrop = async (e) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) {
-        const storageRef = ref(storage, 'plans/' + file.name);
-        await uploadBytes(storageRef, file);
-        const url = await getDownloadURL(storageRef);
-        Konva.Image.fromURL(url, (img) => {
-            layer.add(img); img.moveToBottom(); layer.draw();
-            dropZone.classList.add('hidden');
-            document.getElementById('canvas-container').classList.remove('hidden');
-        });
-    }
-};
-dropZone.ondragover = (e) => e.preventDefault();
-
-stage.on('click', (e) => {
-    if (e.target.className === 'Image') {
-        tempCoords = stage.getPointerPosition();
-        document.getElementById('piece-editor').classList.remove('hidden');
-        selectedPieceId = null;
-        renderPlan();
-    } else if (e.target.name() === 'p-rect') {
-        selectedPieceId = e.target.id();
-        renderPlan(); // Refresh pour montrer la sélection
-    }
-});
-
-// --- ÉCOUTE SYNC ---
-onSnapshot(collection(db, "pieces"), (s) => {
-    allPieces = s.docs.map(d => ({ id: d.id, ...d.data() }));
-    updateMenus(); renderPlan(); renderGantt();
-});
-onSnapshot(collection(db, "sequences"), (s) => {
-    allSequences = s.docs.map(d => ({ id: d.id, ...d.data() }));
-    updateMenus(); renderGantt();
-    document.getElementById('list-sequences').innerHTML = allSequences.map(s => `<div class="p-2 bg-slate-100 rounded text-sm"><strong>${s.name}</strong></div>`).join('');
-});
-onSnapshot(collection(db, "issues"), (s) => {
-    allIssues = s.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderPlan(); renderGantt();
-    // Liste complète
-    document.getElementById('list-issues-full').innerHTML = allIssues.map(i => `<div class="p-2 border rounded text-sm bg-white">${i.desc}</div>`).join('');
-    // Liste latérale (bloquants non assignés)
-    document.getElementById('sidebar-issues-list').innerHTML = allIssues.filter(i => !i.pieceId).map(i => `
-        <button onclick="assignIssue('${i.id}')" class="w-full p-2 text-left bg-red-50 border border-red-200 text-red-700 text-xs rounded hover:bg-red-100 transition-colors">
-            ⚠️ ${i.desc}
-        </button>`).join('');
-});
-onSnapshot(collection(db, "sd"), (s) => {
-    document.getElementById('list-sd').innerHTML = s.docs.map(d => `<div class="p-3 bg-white border rounded shadow-sm">SD: ${d.data().ref}</div>`).join('');
-});
-
-function updateMenus() {
-    const pOptions = allPieces.map(p => `<option value="${p.id}">${p.nom}</option>`).join('');
-    document.querySelectorAll('.select-pieces-list').forEach(sel => sel.innerHTML = '<option value="">Pièce...</option>' + pOptions);
-    const sOptions = allSequences.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
-    document.querySelectorAll('.select-seq-list').forEach(sel => sel.innerHTML = '<option value="">Séquence...</option>' + sOptions);
-}
-
-function renderPlan() {
-    layer.find('.p-rect').forEach(r => r.destroy());
-    allPieces.forEach(p => {
-        const isBlocked = allIssues.some(i => i.pieceId === p.id);
-        const isSelected = selectedPieceId === p.id;
-        const r = new Konva.Rect({ 
-            x: p.x, y: p.y, width: 40, height: 30, 
-            fill: isBlocked ? '#ef4444' : (isSelected ? '#3b82f6' : '#94a3b8'), 
-            opacity: isSelected ? 0.9 : 0.5, 
-            stroke: isSelected ? 'white' : 'black', strokeWidth: isSelected ? 2 : 0,
-            name: 'p-rect', id: p.id 
-        });
-        layer.add(r);
-    });
-    layer.draw();
-}
-
-// --- MOTEUR DE GANTT EXPERT (6j/7 + Liens + Lag) ---
-function renderGantt() {
-    const container = document.getElementById('gantt-render');
-    container.innerHTML = "<h3 class='font-bold text-lg mb-4'>Planning de Production (Anti-Collision Ressources)</h3>";
-    let resourceBusyUntil = {};
-
-    allPieces.sort((a,b) => new Date(a.startDate) - new Date(b.startDate)).forEach(piece => {
-        const seq = allSequences.find(s => s.id === piece.seqId);
-        if (!seq) return;
-        
-        let pHTML = `<div class="p-4 border-l-4 border-blue-500 bg-white shadow-sm rounded-r-xl">
-            <div class="flex justify-between font-bold mb-2"><span>${piece.nom}</span> <span class="text-xs text-slate-400 font-mono">DÉBUT: ${piece.startDate}</span></div>`;
-        
-        let lastTaskStart = new Date(piece.startDate);
-        let lastTaskEnd = new Date(piece.startDate);
-
-        seq.tasks.forEach((t, index) => {
-            let taskStart;
+        <section class="flex-1 p-4 overflow-hidden">
             
-            // Calcul du début selon le type de lien et le Lag
-            if (index === 0) {
-                taskStart = new Date(piece.startDate);
-            } else {
-                if (t.type === "FS") { // Fin-Début
-                    taskStart = addWorkDays(lastTaskEnd, t.lag);
-                } else { // SS Début-Début
-                    taskStart = addWorkDays(lastTaskStart, t.lag);
-                }
-            }
+            <div id="tab-plan" class="tab-content active h-full flex flex-row gap-4">
+                <div class="flex-1 flex flex-col">
+                    <div id="drag-drop-zone" class="flex-1 border-4 border-dashed border-slate-300 rounded-xl flex items-center justify-center bg-white text-slate-400">Glissez le plan ici</div>
+                    <div id="canvas-container" class="hidden flex-1 shadow-inner rounded-xl overflow-hidden bg-slate-200 border"></div>
+                    
+                    <div id="piece-editor" class="hidden mt-4 p-4 bg-white rounded-xl shadow-lg border border-blue-200 flex gap-4 items-center">
+                        <input type="text" id="new-piece-name" placeholder="Nom" class="border p-2 rounded w-40">
+                        <select id="new-piece-seq" class="border p-2 rounded select-seq-list"></select>
+                        <input type="date" id="new-piece-date" class="border p-2 rounded">
+                        <button onclick="saveNewPiece()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold">Créer</button>
+                    </div>
+                </div>
 
-            // ANTI-COLLISION RESSOURCE
-            if (!t.overlap && resourceBusyUntil[t.ent] && taskStart < resourceBusyUntil[t.ent]) {
-                taskStart = new Date(resourceBusyUntil[t.ent]);
-            }
+                <div class="w-72 bg-white rounded-xl shadow-lg border p-4 flex flex-col">
+                    <h3 class="font-bold text-slate-700 mb-4 border-b pb-2">Assigner Bloquant</h3>
+                    <div id="sidebar-issues-list" class="flex-1 overflow-auto space-y-2"></div>
+                </div>
+            </div>
 
-            let taskEnd = addWorkDays(taskStart, t.days);
-            
-            pHTML += `<div class="grid grid-cols-3 text-[11px] py-1 border-t border-slate-50">
-                <span class="font-bold">${t.name}</span>
-                <span class="text-slate-400 italic">${t.ent}</span>
-                <span class="text-right text-blue-700 font-mono">${taskStart.toLocaleDateString()} &rarr; ${taskEnd.toLocaleDateString()}</span>
-            </div>`;
+            <div id="tab-gantt" class="tab-content">
+                <div id="gantt-render" class="bg-white p-6 rounded-xl shadow border h-full overflow-auto space-y-4"></div>
+            </div>
 
-            if (!t.overlap) resourceBusyUntil[t.ent] = new Date(taskEnd);
-            lastTaskStart = new Date(taskStart);
-            lastTaskEnd = new Date(taskEnd);
-        });
+            <div id="tab-sequences" class="tab-content overflow-auto">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow border">
+                        <h3 class="font-bold mb-4">Nouvelle Séquence</h3>
+                        <input type="text" id="seq-name" placeholder="Nom de la séquence" class="w-full border p-3 mb-4 rounded font-bold">
+                        <div id="tasks-list" class="space-y-2">
+                            <div class="flex gap-2 bg-slate-50 p-2 rounded items-end">
+                                <div class="flex-1"><label class="text-[10px]">Tâche</label><input type="text" class="w-full border p-1 rounded t-name"></div>
+                                <div class="w-16"><label class="text-[10px]">Jours</label><input type="number" class="w-full border p-1 rounded t-days"></div>
+                                <div class="w-20"><label class="text-[10px]">Ent.</label><input type="text" class="w-full border p-1 rounded t-ent"></div>
+                                <div class="w-24">
+                                    <label class="text-[10px]">Lien</label>
+                                    <select class="w-full border p-1 rounded t-type"><option value="FS">Fin-Début</option><option value="SS">Début-Début</option></select>
+                                </div>
+                                <div class="w-16"><label class="text-[10px]">Lag</label><input type="number" value="0" class="w-full border p-1 rounded t-lag"></div>
+                                <div class="flex flex-col items-center"><label class="text-[10px]">Overlap</label><input type="checkbox" class="t-overlap"></div>
+                            </div>
+                        </div>
+                        <button onclick="addTaskRow()" class="text-blue-600 font-bold mt-4">+ Tâche</button>
+                        <button onclick="saveSequence()" class="w-full bg-slate-900 text-white py-3 rounded-xl font-bold mt-6">Enregistrer</button>
+                    </div>
+                    <div id="list-sequences" class="bg-white p-6 rounded-xl shadow border space-y-2 h-fit"></div>
+                </div>
+            </div>
 
-        container.innerHTML += pHTML + `</div>`;
-    });
-}
+            <div id="tab-issues" class="tab-content">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-xl shadow border">
+                        <h3 class="font-bold mb-4 text-red-600">Nouveau Bloquant (Générique)</h3>
+                        <textarea id="issue-desc" placeholder="Description..." class="w-full border p-3 mb-4 rounded h-32"></textarea>
+                        <button onclick="saveIssue()" class="w-full bg-red-600 text-white py-3 rounded-xl font-bold">Ajouter à la base</button>
+                    </div>
+                    <div id="list-issues-full" class="bg-white p-6 rounded-xl shadow border space-y-2"></div>
+                </div>
+            </div>
+
+        </section>
+    </section>
+
+    <script>
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(el => { el.classList.remove('bg-blue-600','text-white'); el.classList.add('text-slate-300'); });
+            document.getElementById('tab-' + tabId).classList.add('active');
+            document.getElementById('btn-' + tabId).classList.add('bg-blue-600','text-white');
+            document.getElementById('current-tab-title').innerText = document.getElementById('btn-' + tabId).innerText;
+        }
+    </script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
