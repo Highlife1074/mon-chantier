@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Chantier Pro - Interface</title>
+    <!-- On charge Tailwind pour le look sans rien installer -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- On charge Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // VOS CLÉS FIREBASE (Collez-les ici)
+        const firebaseConfig = {
+            apiKey: "AIzaSyB7hNu1hPJ_Cqbjqm_6cUN9BW_s77xjphE",
+            authDomain: "planning-c2fc1.firebaseapp.com",
+            projectId: "planning-c2fc1",
+            storageBucket: "planning-c2fc1.firebasestorage.app",
+            messagingSenderId: "1098649670059",
+            appId: "1:1098649670059:web:0bd00a157faff09b7242ee"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // LOGIQUE SIMPLE POUR TESTER
+        window.ajouterPiece = async () => {
+            const nom = prompt("Nom de la pièce ?");
+            if (nom) {
+                await addDoc(collection(db, "pieces"), { nom, statut: "À démarrer" });
+            }
+        };
+
+        // ÉCOUTER LES PIÈCES EN TEMPS RÉEL
+        onSnapshot(collection(db, "pieces"), (snapshot) => {
+            const liste = document.getElementById('liste-pieces');
+            liste.innerHTML = "";
+            snapshot.forEach(doc => {
+                const p = doc.data();
+                liste.innerHTML += `<div class="p-4 bg-white shadow rounded-lg border-l-4 border-blue-500 mb-2">${p.nom}</div>`;
+            });
+        });
+    </script>
+</head>
+<body class="bg-slate-100 h-screen flex flex-col">
+    <nav class="bg-slate-900 text-white p-4 shadow-lg flex justify-between items-center">
+        <h1 class="text-xl font-bold">Chantier Pro - Mode Cloud</h1>
+        <button onclick="ajouterPiece()" class="bg-blue-600 px-4 py-2 rounded hover:bg-blue-700">+ Ajouter une pièce</button>
+    </nav>
+    
+    <main class="flex-1 p-6 overflow-auto">
+        <div id="drag-drop-zone" class="border-4 border-dashed border-slate-300 rounded-2xl h-64 flex items-center justify-center text-slate-400 mb-6">
+            Glissez votre plan ici (PDF ou Image)
+        </div>
+        
+        <h2 class="text-lg font-bold mb-4 text-slate-700">Pièces sur le chantier :</h2>
+        <div id="liste-pieces" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Les pièces s'afficheront ici -->
+        </div>
+    </main>
+</body>
+</html>
