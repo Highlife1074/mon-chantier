@@ -18,7 +18,6 @@ const storage = getStorage(app);
 let allPieces = [], allSequences = [], allIssues = [];
 let tempCoords = null, selectedPieceId = null, editingSeqId = null;
 
-// KONVA
 let stage = new Konva.Stage({ container: 'canvas-container', width: 1000, height: 700 });
 let layer = new Konva.Layer();
 stage.add(layer);
@@ -26,47 +25,59 @@ stage.add(layer);
 function addWorkDays(startDate, days) {
     let date = new Date(startDate);
     let added = 0;
-    while (added < days) {
-        date.setDate(date.getDate() + 1);
+    while (added < Math.abs(days)) {
+        date.setDate(date.getDate() + (days > 0 ? 1 : -1));
         if (date.getDay() !== 0) added++;
     }
     return date;
 }
 
-// ATTACHE DES FONCTIONS AU WINDOW (CRUCIAL POUR LES BOUTONS HTML)
+// --- LOGIQUE DES SÉQUENCES ---
 window.addTaskRow = (data = null) => {
     const list = document.getElementById('tasks-list');
-    if (!list) return;
+    const index = list.children.length + 1;
     const div = document.createElement('div');
-    div.className = "flex gap-2 bg-slate-50 p-2 rounded border border-slate-200 items-end task-row";
+    div.className = "grid grid-cols-12 gap-2 bg-white p-2 rounded border border-slate-200 items-center task-row shadow-sm";
     div.innerHTML = `
-        <div class="flex-1"><label class="text-[8px] uppercase">Tâche</label><input type="text" class="w-full border p-1 rounded t-name" value="${data ? data.name : ''}"></div>
-        <div class="w-12"><label class="text-[8px] uppercase">Jours</label><input type="number" class="w-full border p-1 rounded t-days" value="${data ? data.days : ''}"></div>
-        <div class="w-20"><label class="text-[8px] uppercase">Ent.</label><input type="text" class="w-full border p-1 rounded t-ent" value="${data ? data.ent : ''}"></div>
-        <div class="w-20"><label class="text-[8px] uppercase">Lien</label><select class="w-full border p-1 rounded t-type"><option value="FS" ${data?.type === 'FS' ? 'selected' : ''}>FS</option><option value="SS" ${data?.type === 'SS' ? 'selected' : ''}>SS</option></select></div>
-        <div class="w-12"><label class="text-[8px] uppercase">Lag</label><input type="number" class="w-full border p-1 rounded t-lag" value="${data ? data.lag : 0}"></div>
-        <button onclick="this.parentElement.remove()" class="text-red-500 font-bold px-2">×</button>`;
+        <div class="col-span-1 text-center font-bold text-slate-400 text-xs t-id">${index}</div>
+        <div class="col-span-3"><input type="text" class="w-full border p-1 rounded text-xs t-name" value="${data ? data.name : ''}"></div>
+        <div class="col-span-1"><input type="number" class="w-full border p-1 rounded text-xs t-days" value="${data ? data.days : ''}"></div>
+        <div class="col-span-2"><input type="text" class="w-full border p-1 rounded text-xs t-ent" value="${data ? data.ent : ''}"></div>
+        <div class="col-span-2">
+            <select class="w-full border p-1 rounded text-[10px] t-type">
+                <option value="FS" ${data?.type === 'FS' ? 'selected' : ''}>FS (Fin-Début)</option>
+                <option value="SS" ${data?.type === 'SS' ? 'selected' : ''}>SS (Début-Début)</option>
+            </select>
+        </div>
+        <div class="col-span-1"><input type="number" placeholder="ID" class="w-full border p-1 rounded text-xs t-prec" value="${data ? data.prec : ''}"></div>
+        <div class="col-span-1"><input type="number" class="w-full border p-1 rounded text-xs t-lag" value="${data ? data.lag : 0}"></div>
+        <div class="col-span-1 text-right"><button onclick="this.parentElement.parentElement.remove()" class="text-red-400 hover:text-red-600 font-bold">×</button></div>
+    `;
     list.appendChild(div);
 };
 
 window.saveSequence = async () => {
     const name = document.getElementById('seq-name').value;
-    const tasks = Array.from(document.querySelectorAll('.task-row')).map(row => ({
+    const tasks = Array.from(document.querySelectorAll('.task-row')).map((row, idx) => ({
+        id: idx + 1,
         name: row.querySelector('.t-name').value,
         days: parseInt(row.querySelector('.t-days').value) || 1,
         ent: row.querySelector('.t-ent').value,
         type: row.querySelector('.t-type').value,
+        prec: row.querySelector('.t-prec').value ? parseInt(row.querySelector('.t-prec').value) : (idx > 0 ? idx : null),
         lag: parseInt(row.querySelector('.t-lag').value) || 0
     }));
-    if (!name) return alert("Nom manquant");
+
+    if (!name) return alert("Nom de séquence requis");
     if (editingSeqId) await updateDoc(doc(db, "sequences", editingSeqId), { name, tasks });
     else await addDoc(collection(db, "sequences"), { name, tasks });
+    
+    alert("Séquence enregistrée");
     resetSeqForm();
 };
 
 window.editSequence = (id) => {
     const seq = allSequences.find(s => s.id === id);
-    if(!seq) return;
     editingSeqId = id;
     document.getElementById('seq-form-title').innerText = "Modification : " + seq.name;
     document.getElementById('seq-name').value = seq.name;
@@ -77,7 +88,7 @@ window.editSequence = (id) => {
 };
 
 window.deleteSequence = async (id) => {
-    if (confirm("Supprimer la séquence ?")) await deleteDoc(doc(db, "sequences", id));
+    if (confirm("Supprimer cette séquence ?")) await deleteDoc(doc(db, "sequences", id));
 };
 
 window.resetSeqForm = () => {
@@ -89,11 +100,13 @@ window.resetSeqForm = () => {
     addTaskRow();
 };
 
+// --- LOGIQUE PIÈCES ---
 window.processPiece = async () => {
     const name = document.getElementById('p-edit-name').value;
     const seqId = document.getElementById('p-edit-seq').value;
     const startDate = document.getElementById('p-edit-date').value;
-    if (!name || !seqId || !startDate) return alert("Données manquantes");
+    if (!name || !seqId || !startDate) return alert("Champs obligatoires");
+
     if (selectedPieceId) await updateDoc(doc(db, "pieces", selectedPieceId), { nom: name, seqId, startDate });
     else await addDoc(collection(db, "pieces"), { nom: name, x: tempCoords.x, y: tempCoords.y, seqId, startDate });
     cancelPieceEdit();
@@ -105,18 +118,7 @@ window.cancelPieceEdit = () => {
     renderPlan();
 };
 
-window.saveIssue = async () => {
-    const desc = document.getElementById('issue-desc').value;
-    if (desc) await addDoc(collection(db, "issues"), { desc, pieceId: null });
-    document.getElementById('issue-desc').value = "";
-};
-
-window.assignToSelected = async (id) => {
-    if (!selectedPieceId) return alert("Cliquez sur une pièce sur le plan !");
-    await updateDoc(doc(db, "issues", id), { pieceId: selectedPieceId });
-};
-
-// PLAN
+// --- PLAN ---
 const dropZone = document.getElementById('drag-drop-zone');
 dropZone.ondrop = async (e) => {
     e.preventDefault();
@@ -139,7 +141,6 @@ stage.on('click', (e) => {
         tempCoords = stage.getPointerPosition();
         selectedPieceId = null;
         document.getElementById('p-edit-name').value = "";
-        document.getElementById('btn-save-piece').innerText = "Créer la pièce";
         document.getElementById('piece-editor').classList.remove('hidden');
         renderPlan();
     } else if (e.target.name() === 'p-rect') {
@@ -148,21 +149,20 @@ stage.on('click', (e) => {
         document.getElementById('p-edit-name').value = p.nom;
         document.getElementById('p-edit-seq').value = p.seqId;
         document.getElementById('p-edit-date').value = p.startDate;
-        document.getElementById('btn-save-piece').innerText = "Mettre à jour";
         document.getElementById('piece-editor').classList.remove('hidden');
         renderPlan();
     }
 });
 
-// SYNC
+// --- SYNC ---
 onSnapshot(collection(db, "sequences"), (s) => {
     allSequences = s.docs.map(d => ({ id: d.id, ...d.data() }));
     document.getElementById('list-sequences').innerHTML = allSequences.map(s => `
-        <div class="p-3 bg-white border rounded shadow-sm flex justify-between items-center">
-            <span class="font-bold text-sm">${s.name}</span>
-            <div class="flex gap-4">
-                <button onclick="editSequence('${s.id}')" class="text-blue-600 font-bold">✏️</button>
-                <button onclick="deleteSequence('${s.id}')" class="text-red-500 font-bold">🗑️</button>
+        <div class="p-2 bg-white border rounded shadow-sm flex justify-between items-center group">
+            <span class="font-bold text-xs">${s.name}</span>
+            <div class="flex gap-2">
+                <button onclick="editSequence('${s.id}')" class="text-blue-500 text-xs">✏️</button>
+                <button onclick="deleteSequence('${s.id}')" class="text-red-400 text-xs">🗑️</button>
             </div>
         </div>`).join('');
     updateMenus(); renderGantt();
@@ -178,9 +178,20 @@ onSnapshot(collection(db, "issues"), (s) => {
     renderPlan(); renderGantt();
     const unassigned = allIssues.filter(i => !i.pieceId);
     document.getElementById('count-unassigned').innerText = unassigned.length;
-    document.getElementById('sidebar-issues-list').innerHTML = unassigned.map(i => `<button onclick="assignToSelected('${i.id}')" class="w-full p-2 text-left bg-red-50 text-red-700 text-[10px] rounded border border-red-100 hover:bg-red-200">⚠️ ${i.desc}</button>`).join('');
-    document.getElementById('list-issues-full').innerHTML = allIssues.map(i => `<div class="p-2 bg-white border rounded text-xs">${i.desc} ${i.pieceId ? '✅' : ''}</div>`).join('');
+    document.getElementById('sidebar-issues-list').innerHTML = unassigned.map(i => `<button onclick="assignToSelected('${i.id}')" class="w-full p-2 text-left bg-red-50 text-red-700 text-[10px] rounded border border-red-100 mb-1 hover:bg-red-100">⚠️ ${i.desc}</button>`).join('');
+    document.getElementById('list-issues-full').innerHTML = allIssues.map(i => `<div class="p-2 bg-white border rounded text-[10px]">${i.desc}</div>`).join('');
 });
+
+window.assignToSelected = async (id) => {
+    if (!selectedPieceId) return alert("Sélectionnez une pièce sur le plan");
+    await updateDoc(doc(db, "issues", id), { pieceId: selectedPieceId });
+};
+
+window.saveIssue = async () => {
+    const desc = document.getElementById('issue-desc').value;
+    if (desc) await addDoc(collection(db, "issues"), { desc, pieceId: null });
+    document.getElementById('issue-desc').value = "";
+};
 
 function updateMenus() {
     const sOptions = allSequences.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
@@ -192,27 +203,68 @@ function renderPlan() {
     allPieces.forEach(p => {
         const isBlocked = allIssues.some(i => i.pieceId === p.id);
         const isSelected = selectedPieceId === p.id;
-        layer.add(new Konva.Rect({ x: p.x, y: p.y, width: 40, height: 30, fill: isBlocked ? '#ef4444' : (isSelected ? '#3b82f6' : '#94a3b8'), opacity: 0.6, stroke: isSelected ? 'blue' : 'black', strokeWidth: isSelected ? 3 : 1, name: 'p-rect', id: p.id }));
+        layer.add(new Konva.Rect({ x: p.x, y: p.y, width: 40, height: 30, fill: isBlocked ? '#ef4444' : (isSelected ? '#3b82f6' : '#94a3b8'), opacity: 0.7, stroke: isSelected ? 'blue' : 'black', strokeWidth: isSelected ? 3 : 1, name: 'p-rect', id: p.id }));
     });
     layer.draw();
 }
 
+// --- MOTEUR DE PLANNING EXPERT (RESEAU DE TACHES) ---
 function renderGantt() {
     const container = document.getElementById('gantt-render');
-    if (!container) return;
-    container.innerHTML = "<h3 class='font-bold text-slate-800 border-b pb-2 mb-4 uppercase text-[10px] tracking-widest'>Planning Automatique 6j/7</h3>";
-    let busy = {};
+    container.innerHTML = "<h3 class='font-bold text-slate-800 border-b pb-2 mb-4 uppercase text-[10px] tracking-widest'>Planning Automatique (Réseau PERT)</h3>";
+    
+    let resourceBusyUntil = {}; // Libération des entreprises
+
     allPieces.sort((a,b) => new Date(a.startDate) - new Date(b.startDate)).forEach(piece => {
         const seq = allSequences.find(s => s.id === piece.seqId);
         if (!seq) return;
-        let pHTML = `<div class='p-3 border rounded-xl bg-slate-50 shadow-sm mb-4 border-l-4 border-blue-600'><div class='font-bold text-sm'>${piece.nom}</div>`;
-        let lastS = new Date(piece.startDate), lastE = new Date(piece.startDate);
-        seq.tasks.forEach((t, idx) => {
-            let s = (idx === 0) ? new Date(piece.startDate) : (t.type === "FS" ? addWorkDays(lastE, t.lag) : addWorkDays(lastS, t.lag));
-            if (busy[t.ent] && s < busy[t.ent]) s = new Date(busy[t.ent]);
-            let e = addWorkDays(s, t.days);
-            pHTML += `<div class='text-[9px] flex justify-between border-t py-1'><span>${t.name} (${t.ent})</span><span class='font-bold'>${s.toLocaleDateString()} - ${e.toLocaleDateString()}</span></div>`;
-            busy[t.ent] = new Date(e); lastS = new Date(s); lastE = new Date(e);
+        
+        let pHTML = `<div class='p-4 border rounded-xl bg-slate-50 shadow-sm mb-4 border-l-4 border-blue-600'><div class='font-bold text-sm mb-2'>${piece.nom}</div>`;
+        
+        // Stockage des dates calculées pour chaque tâche de cette pièce
+        let calculatedTasks = {};
+
+        seq.tasks.forEach((t) => {
+            let taskStart;
+            
+            // 1. Détermination de la date de base selon le prédécesseur
+            if (!t.prec) {
+                // Pas de prédécesseur -> On commence à la date de la pièce
+                taskStart = new Date(piece.startDate);
+            } else {
+                const predecessor = calculatedTasks[t.prec];
+                if (predecessor) {
+                    if (t.type === "FS") {
+                        // Fin de la précédente + Lag
+                        taskStart = addWorkDays(predecessor.end, t.lag);
+                    } else {
+                        // Début de la précédente + Lag
+                        taskStart = addWorkDays(predecessor.start, t.lag);
+                    }
+                } else {
+                    taskStart = new Date(piece.startDate);
+                }
+            }
+
+            // 2. Anti-collision par entreprise (Ressource)
+            if (resourceBusyUntil[t.ent] && taskStart < resourceBusyUntil[t.ent]) {
+                taskStart = new Date(resourceBusyUntil[t.ent]);
+            }
+
+            let taskEnd = addWorkDays(taskStart, t.days);
+
+            // Enregistrement pour les successeurs
+            calculatedTasks[t.id] = { start: new Date(taskStart), end: new Date(taskEnd) };
+
+            pHTML += `<div class='text-[10px] flex justify-between border-t py-1 hover:bg-white transition-colors'>
+                        <span class='w-8 text-slate-400 font-mono'>#${t.id}</span>
+                        <span class='w-1/3 font-medium'>${t.name}</span>
+                        <span class='w-1/4 italic text-slate-500'>${t.ent}</span>
+                        <span class='text-right font-bold text-blue-600 font-mono'>${taskStart.toLocaleDateString()} - ${taskEnd.toLocaleDateString()}</span>
+                      </div>`;
+            
+            // On réserve l'entreprise
+            resourceBusyUntil[t.ent] = new Date(taskEnd);
         });
         container.innerHTML += pHTML + "</div>";
     });
