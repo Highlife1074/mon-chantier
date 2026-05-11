@@ -16,11 +16,44 @@ const db = getFirestore(app);
 const storage = getStorage(app);
 
 let allPieces = [], allSequences = [], allIssues = [], allPlans = [];
-let tempCoords = null, selectedPieceId = null, editingSeqId = null, currentPlanId = null;
+let tempCoords = null, selectedPieceId = null, currentPlanId = null;
 
-let stage = new Konva.Stage({ container: 'canvas-container', width: 1200, height: 800 });
+// --- INITIALISATION DESSIN (Stage Draggable pour Pan) ---
+const container = document.getElementById('canvas-container');
+let stage = new Konva.Stage({ 
+    container: 'canvas-container', 
+    width: container.offsetWidth, 
+    height: container.offsetHeight,
+    draggable: true // Permet de déplacer le plan
+});
 let layer = new Konva.Layer();
 stage.add(layer);
+
+// Empêcher le menu contextuel du clic droit pour utiliser le clic droit comme Pan
+container.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// --- LOGIQUE ZOOM ---
+const scaleBy = 1.1;
+stage.on('wheel', (e) => {
+    e.evt.preventDefault();
+    const oldScale = stage.scaleX();
+    const pointer = stage.getPointerPosition();
+
+    const mousePointTo = {
+        x: (pointer.x - stage.x()) / oldScale,
+        y: (pointer.y - stage.y()) / oldScale,
+    };
+
+    const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
+    stage.scale({ x: newScale, y: newScale });
+
+    const newPos = {
+        x: pointer.x - mousePointTo.x * newScale,
+        y: pointer.y - mousePointTo.y * newScale,
+    };
+    stage.position(newPos);
+    stage.batchDraw();
+});
 
 function addWorkDays(startDate, days) {
     let date = new Date(startDate);
@@ -32,25 +65,34 @@ function addWorkDays(startDate, days) {
     return date;
 }
 
-// --- MULTI-PLANS ---
+// --- GESTION MULTI-PLANS ---
 window.selectPlan = (id) => {
     const plan = allPlans.find(p => p.id === id);
     if (!plan) return;
     currentPlanId = id;
 
-    // SECURITÉ : On vérifie si l'élément existe avant de modifier sa classList
     const msg = document.getElementById('no-plan-message');
     if (msg) msg.classList.add('hidden');
     
-    document.getElementById('canvas-container').classList.remove('hidden');
     layer.destroyChildren();
     
     Konva.Image.fromURL(plan.url, (img) => {
-        img.setAttrs({ x: 0, y: 0, name: 'plan-image' });
+        // CALCUL DU SCALE POUR VOIR TOUTE L'IMAGE
+        const containerWidth = stage.width();
+        const containerHeight = stage.height();
+        const scale = Math.min(containerWidth / img.width(), containerHeight / img.height());
+        
+        img.setAttrs({ x: 0, y: 0, name: 'plan-image', scaleX: 1, scaleY: 1 });
+        
+        // Reset stage position et scale
+        stage.scale({ x: scale, y: scale });
+        stage.position({ x: 0, y: 0 });
+        
         layer.add(img);
         img.moveToBottom();
         renderPlan();
-    });
+        stage.batchDraw();
+    }, { crossOrigin: 'anonymous' });
 };
 
 const dropZone = document.getElementById('mini-drop-zone');
@@ -58,27 +100,23 @@ dropZone.ondrop = async (e) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (!file) return;
-
     document.getElementById('upload-progress').classList.remove('hidden');
     try {
         const storageRef = ref(storage, `plans/${Date.now()}_${file.name}`);
         await uploadBytes(storageRef, file);
         const url = await getDownloadURL(storageRef);
         await addDoc(collection(db, "plans"), { name: file.name, url: url, createdAt: Date.now() });
-        alert("Nouveau plan ajouté !");
-    } catch (err) { alert("Erreur d'upload : Vérifiez vos règles Firebase Storage"); }
+    } catch (err) { alert("Erreur upload"); }
     document.getElementById('upload-progress').classList.add('hidden');
 };
 dropZone.ondragover = (e) => e.preventDefault();
 
 // --- LOGIQUE PIÈCES ---
 window.processPiece = async () => {
-    if (!currentPlanId) return alert("Sélectionnez d'abord un plan à gauche");
+    if (!currentPlanId) return alert("Sélectionnez un plan !");
     const nom = document.getElementById('p-edit-name').value;
     const seqId = document.getElementById('p-edit-seq').value;
     const startDate = document.getElementById('p-edit-date').value;
-    if (!nom || !seqId || !startDate) return alert("Champs manquants");
-
     if (selectedPieceId) await updateDoc(doc(db, "pieces", selectedPieceId), { nom, seqId, startDate });
     else await addDoc(collection(db, "pieces"), { nom, seqId, startDate, x: tempCoords.x, y: tempCoords.y, planId: currentPlanId });
     cancelPieceEdit();
@@ -92,8 +130,12 @@ window.cancelPieceEdit = () => {
 
 stage.on('click', (e) => {
     if (!currentPlanId) return;
+    // On calcule la position réelle sur l'image (en tenant compte du zoom/pan)
+    const transform = stage.getAbsoluteTransform().copy().invert();
+    const pos = transform.point(stage.getPointerPosition());
+
     if (e.target.hasName('plan-image')) {
-        tempCoords = stage.getPointerPosition();
+        tempCoords = pos;
         selectedPieceId = null;
         document.getElementById('p-edit-name').value = "";
         document.getElementById('piece-editor').classList.remove('hidden');
@@ -113,22 +155,7 @@ stage.on('click', (e) => {
 onSnapshot(collection(db, "plans"), (s) => {
     allPlans = s.docs.map(d => ({ id: d.id, ...d.data() }));
     document.getElementById('plans-list').innerHTML = allPlans.map(p => `
-        <div onclick="selectPlan('${p.id}')" class="p-2 border rounded-lg text-[10px] bg-white cursor-pointer hover:bg-blue-50 transition-colors ${currentPlanId === p.id ? 'border-blue-500 bg-blue-50' : ''}">
-            📄 ${p.name}
-        </div>`).join('');
-});
-
-onSnapshot(collection(db, "sequences"), (s) => {
-    allSequences = s.docs.map(d => ({ id: d.id, ...d.data() }));
-    document.getElementById('list-sequences').innerHTML = allSequences.map(s => `
-        <div class="p-2 bg-slate-50 border rounded text-[10px] flex justify-between items-center">
-            <strong>${s.name}</strong>
-            <div class="flex gap-2">
-                <button onclick="editSequence('${s.id}')">✏️</button>
-                <button onclick="deleteSequence('${s.id}')">🗑️</button>
-            </div>
-        </div>`).join('');
-    updateMenus(); renderGantt();
+        <div onclick="selectPlan('${p.id}')" class="p-2 border rounded-lg text-[10px] bg-white cursor-pointer hover:bg-blue-50 transition-colors">📄 ${p.name}</div>`).join('');
 });
 
 onSnapshot(collection(db, "pieces"), (s) => {
@@ -136,51 +163,67 @@ onSnapshot(collection(db, "pieces"), (s) => {
     updateMenus(); renderPlan(); renderGantt();
 });
 
+onSnapshot(collection(db, "sequences"), (s) => {
+    allSequences = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    document.getElementById('list-sequences').innerHTML = allSequences.map(s => `
+        <div class="p-2 bg-white border rounded shadow-sm text-[10px] flex justify-between"><strong>${s.name}</strong><button onclick="deleteSequence('${s.id}')">🗑️</button></div>`).join('');
+    updateMenus(); renderGantt();
+});
+
 onSnapshot(collection(db, "issues"), (s) => {
     allIssues = s.docs.map(d => ({ id: d.id, ...d.data() }));
     renderPlan(); renderGantt();
     const unassigned = allIssues.filter(i => !i.pieceId);
+    document.getElementById('count-unassigned').innerText = unassigned.length;
     document.getElementById('sidebar-issues-list').innerHTML = unassigned.map(i => `<button onclick="assignToSelected('${i.id}')" class="w-full p-2 text-left bg-red-50 text-red-700 text-[10px] rounded border border-red-100 mb-1">⚠️ ${i.desc}</button>`).join('');
+    document.getElementById('list-issues-full').innerHTML = allIssues.map(i => `<div class="p-2 bg-white border rounded text-[10px]">${i.desc} ${i.pieceId ? '✅' : ''}</div>`).join('');
 });
 
-function updateMenus() {
-    const sOptions = allSequences.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
-    document.querySelectorAll('.select-seq-list').forEach(sel => sel.innerHTML = '<option value="">Choisir...</option>' + sOptions);
-}
+window.assignToSelected = async (id) => { if (selectedPieceId) await updateDoc(doc(db, "issues", id), { pieceId: selectedPieceId }); };
+
+window.saveIssue = async () => {
+    const desc = document.getElementById('issue-desc').value;
+    if (desc) await addDoc(collection(db, "issues"), { desc, pieceId: null });
+    document.getElementById('issue-desc').value = "";
+};
 
 function renderPlan() {
     layer.find('.p-rect').forEach(r => r.destroy());
     allPieces.filter(p => p.planId === currentPlanId).forEach(p => {
         const isBlocked = allIssues.some(i => i.pieceId === p.id);
         const isSelected = selectedPieceId === p.id;
-        layer.add(new Konva.Rect({ x: p.x, y: p.y, width: 40, height: 30, fill: isBlocked ? '#ef4444' : (isSelected ? '#3b82f6' : '#94a3b8'), opacity: 0.6, stroke: isSelected ? 'blue' : 'black', strokeWidth: isSelected ? 2 : 1, name: 'p-rect', id: p.id }));
+        layer.add(new Konva.Rect({ 
+            x: p.x, y: p.y, width: 40, height: 30, 
+            fill: isBlocked ? '#ef4444' : (isSelected ? '#3b82f6' : '#94a3b8'), 
+            opacity: 0.7, stroke: isSelected ? 'blue' : 'black', strokeWidth: isSelected ? 3 : 1,
+            name: 'p-rect', id: p.id 
+        }));
     });
     layer.draw();
 }
 
 function renderGantt() {
     const container = document.getElementById('gantt-render');
-    container.innerHTML = "<h3 class='font-bold text-slate-800 text-[10px] uppercase tracking-widest border-b pb-2 mb-4'>Planning Global</h3>";
+    container.innerHTML = "PLANNING";
     let busy = {};
     allPieces.sort((a,b) => new Date(a.startDate) - new Date(b.startDate)).forEach(piece => {
         const seq = allSequences.find(s => s.id === piece.seqId);
         if (!seq) return;
         const plan = allPlans.find(pl => pl.id === piece.planId);
-        let pHTML = `<div class='p-3 border rounded-xl bg-white shadow-sm mb-4 border-l-4 border-blue-600'><div class='font-bold text-xs'>${plan?plan.name:''} > ${piece.nom}</div>`;
+        let pHTML = `<div class='p-2 border rounded bg-white mb-2'><div class='font-bold uppercase text-[10px] text-blue-600'>${plan ? plan.name : ''} > ${piece.nom}</div>`;
         let calculatedTasks = {};
         seq.tasks.forEach((t) => {
             let s = (!t.prec) ? new Date(piece.startDate) : (t.type === "FS" ? addWorkDays(calculatedTasks[t.prec]?.end, t.lag) : addWorkDays(calculatedTasks[t.prec]?.start, t.lag));
             if (busy[t.ent] && s < busy[t.ent]) s = new Date(busy[t.ent]);
             let e = addWorkDays(s, t.days);
             calculatedTasks[t.id] = { start: s, end: e };
-            pHTML += `<div class='text-[9px] flex justify-between border-t py-1 opacity-70'><span>#${t.id} ${t.name}</span><span>${s.toLocaleDateString()} - ${e.toLocaleDateString()}</span></div>`;
+            pHTML += `<div class='flex justify-between border-t py-1 opacity-70 text-[9px]'><span>#${t.id} ${t.name}</span><span>${s.toLocaleDateString()} - ${e.toLocaleDateString()}</span></div>`;
             busy[t.ent] = new Date(e);
         });
         container.innerHTML += pHTML + "</div>";
     });
 }
 
-// LOGIQUE SÉQUENCES
 window.addTaskRow = (data = null) => {
     const div = document.createElement('div');
     div.className = "flex gap-2 task-row items-end bg-slate-50 p-1 rounded border";
@@ -189,8 +232,7 @@ window.addTaskRow = (data = null) => {
                      <input type="text" class="w-20 border p-1 rounded text-[10px] t-ent" value="${data?data.ent:''}">
                      <select class="border p-1 rounded text-[8px] t-type"><option value="FS">FS</option><option value="SS">SS</option></select>
                      <input type="number" placeholder="Préc." class="w-12 border p-1 rounded text-[10px] t-prec" value="${data?data.prec:''}">
-                     <input type="number" class="w-10 border p-1 rounded text-[10px] t-lag" value="${data?data.lag:0}">
-                     <button onclick="this.parentElement.remove()" class="text-red-500 font-bold px-2">×</button>`;
+                     <input type="number" class="w-10 border p-1 rounded text-[10px] t-lag" value="${data?data.lag:0}">`;
     document.getElementById('tasks-list').appendChild(div);
 };
 
@@ -200,26 +242,14 @@ window.saveSequence = async () => {
         id: idx + 1, name: row.querySelector('.t-name').value, days: parseInt(row.querySelector('.t-days').value) || 1, ent: row.querySelector('.t-ent').value, type: row.querySelector('.t-type').value, prec: row.querySelector('.t-prec').value ? parseInt(row.querySelector('.t-prec').value) : (idx > 0 ? idx : null), lag: parseInt(row.querySelector('.t-lag').value) || 0
     }));
     if (name) await addDoc(collection(db, "sequences"), { name, tasks });
-    resetSeqForm();
+    document.getElementById('seq-name').value = ""; document.getElementById('tasks-list').innerHTML = ""; addTaskRow();
 };
 
 window.deleteSequence = async (id) => { if (confirm("Supprimer ?")) await deleteDoc(doc(db, "sequences", id)); };
 
-window.resetSeqForm = () => {
-    document.getElementById('seq-name').value = "";
-    document.getElementById('tasks-list').innerHTML = "";
-    addTaskRow();
-};
-
-window.saveIssue = async () => {
-    const desc = document.getElementById('issue-desc').value;
-    if (desc) await addDoc(collection(db, "issues"), { desc, pieceId: null });
-    document.getElementById('issue-desc').value = "";
-};
-
-window.assignToSelected = async (id) => {
-    if (!selectedPieceId) return alert("Sélectionnez une pièce !");
-    await updateDoc(doc(db, "issues", id), { pieceId: selectedPieceId });
-};
+function updateMenus() {
+    const sOptions = allSequences.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+    document.querySelectorAll('.select-seq-list').forEach(sel => sel.innerHTML = '<option value="">Choisir...</option>' + sOptions);
+}
 
 addTaskRow();
