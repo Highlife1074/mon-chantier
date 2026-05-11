@@ -1,125 +1,14 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chantier Pro - Pilotage Expert</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/konva@9/konva.min.js"></script>
-    <style>
-        .tab-content { display: none !important; }
-        .tab-content.active { display: flex !important; flex-direction: column; height: 100%; }
-        .nav-btn.active { background-color: #2563eb; color: white; }
-        #canvas-container canvas { 
-            background-image: radial-gradient(#e2e8f0 1px, transparent 1px); 
-            background-size: 15px 15px; 
-            cursor: crosshair !important; 
-        }
-        #piece-editor { z-index: 100; }
-        .plan-item:hover .delete-plan-btn { display: block; }
-    </style>
-</head>
-<body class="bg-slate-50 h-screen flex overflow-hidden font-sans text-slate-950">
-
-    <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20">
-        <div class="p-6 text-xl font-bold border-b border-slate-800 text-blue-400 font-mono italic">🏗️ CHANTIER PRO</div>
-        <nav class="flex-1 p-4 space-y-2 mt-4">
-            <button onclick="switchTab('plan')" class="nav-btn active flex items-center w-full p-3 rounded-lg transition-all" id="btn-plan">📍 Plans & Dessin</button>
-            <button onclick="switchTab('gantt')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-gantt">📅 Planning Expert</button>
-            <button onclick="switchTab('sequences')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-sequences">⚙️ Séquences</button>
-            <button onclick="switchTab('issues')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-issues">⚠️ Bloquants</button>
-        </nav>
-    </aside>
-
-    <main class="flex-1 flex flex-col overflow-hidden">
-        <header class="h-14 bg-white border-b border-slate-200 flex items-center px-8 justify-between shadow-sm">
-            <h2 id="current-tab-title" class="text-lg font-bold text-slate-700">Plans & Dessin</h2>
-            <div id="upload-progress" class="hidden text-[10px] bg-blue-100 text-blue-700 px-3 py-1 rounded-full animate-pulse">SYNCHRONISATION...</div>
-        </header>
-
-        <section class="flex-1 p-4 overflow-hidden relative">
-            <div id="tab-plan" class="tab-content active h-full flex flex-row gap-4">
-                
-                <div class="w-64 flex flex-col gap-4">
-                    <div id="mini-drop-zone" class="border-2 border-dashed border-slate-300 rounded-xl p-4 bg-white text-center text-[10px] text-slate-400 hover:border-blue-400 cursor-pointer transition-all">
-                        + Glissez une IMAGE ici
-                    </div>
-                    <div class="flex-1 bg-white rounded-xl shadow-sm border p-3 overflow-auto">
-                        <h3 class="text-[10px] font-bold uppercase text-slate-400 mb-3 border-b pb-1">Bibliothèque</h3>
-                        <div id="plans-list" class="space-y-2"></div>
-                    </div>
-                </div>
-
-                <div class="flex-1 flex flex-col relative overflow-hidden bg-slate-100 rounded-xl border">
-                    <div id="canvas-container" class="flex-1 relative overflow-hidden">
-                        <div id="no-plan-message" class="absolute inset-0 flex items-center justify-center text-slate-400 italic">Sélectionnez un plan à gauche</div>
-                    </div>
-                    
-                    <div id="piece-editor" class="hidden absolute bottom-4 left-4 right-4 p-4 bg-white rounded-xl shadow-2xl border-2 border-blue-500 flex gap-4 items-end animate-in slide-in-from-bottom-4">
-                        <div class="flex-1">
-                            <label class="text-[10px] font-bold text-slate-400 uppercase">Désignation</label>
-                            <input type="text" id="p-edit-name" class="w-full border p-2 rounded text-sm outline-none shadow-inner">
-                        </div>
-                        <div class="flex-1">
-                            <label class="text-[10px] font-bold text-slate-400 uppercase">Séquence</label>
-                            <select id="p-edit-seq" class="w-full border p-2 rounded text-sm select-seq-list"></select>
-                        </div>
-                        <div class="flex-1">
-                            <label class="text-[10px] font-bold text-slate-400 uppercase">Début</label>
-                            <input type="date" id="p-edit-date" class="w-full border p-2 rounded text-sm">
-                        </div>
-                        <button onclick="processPiece()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold shadow-lg hover:bg-blue-700">Valider</button>
-                        <button onclick="cancelPieceEdit()" class="text-slate-400 text-xs mb-2">Annuler</button>
-                    </div>
-                </div>
-
-                <div class="w-72 bg-white rounded-xl shadow-lg border p-4 flex flex-col">
-                    <h3 class="font-bold text-slate-700 mb-2 border-b pb-2 text-xs flex justify-between">Bloquants libres <span id="count-unassigned" class="bg-red-100 text-red-700 px-2 rounded-full">0</span></h3>
-                    <div id="sidebar-issues-list" class="flex-1 overflow-auto space-y-2"></div>
-                </div>
+// DANS APP.JS, remplacez la partie qui génère l'affichage des plans par :
+onSnapshot(collection(db, "plans"), (s) => {
+    allPlans = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    document.getElementById('plans-list').innerHTML = allPlans.map(p => `
+        <div class="flex items-center gap-2 group p-2 border rounded-lg bg-white hover:bg-blue-50 transition-all">
+            <div onclick="selectPlan('${p.id}')" class="flex-1 cursor-pointer text-[10px] truncate ${currentPlanId === p.id ? 'font-bold text-blue-600' : ''}">
+                📄 ${p.name}
             </div>
-
-            <div id="tab-gantt" class="tab-content overflow-auto space-y-4 font-mono text-xs p-4"></div>
-
-            <div id="tab-sequences" class="tab-content overflow-auto p-4">
-                <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                    <div class="lg:col-span-3 bg-white p-6 rounded-xl shadow border">
-                        <h3 class="font-bold mb-4">Réseau de tâches</h3>
-                        <input type="text" id="seq-name" placeholder="Nom de la séquence" class="w-full border p-3 mb-4 rounded font-bold bg-slate-50 border-slate-300">
-                        <div id="tasks-list" class="space-y-2"></div>
-                        <button onclick="addTaskRow()" class="mt-4 text-blue-600 text-xs font-bold font-bold">+ Ajouter une étape</button>
-                        <button onclick="saveSequence()" class="w-full bg-slate-900 text-white py-3 rounded-xl font-bold mt-6 shadow-lg hover:bg-black">Enregistrer le modèle</button>
-                    </div>
-                    <div id="list-sequences" class="bg-white p-6 rounded-xl shadow border space-y-2 overflow-auto h-fit"></div>
-                </div>
-            </div>
-
-            <div id="tab-issues" class="tab-content p-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 h-full">
-                    <div class="bg-white p-6 rounded-xl shadow border h-fit">
-                        <h3 class="font-bold mb-4 text-red-600 uppercase text-xs">Signaler un bloquant</h3>
-                        <textarea id="issue-desc" placeholder="Problème..." class="w-full border p-3 mb-4 rounded h-40 bg-slate-50"></textarea>
-                        <button onclick="saveIssue()" class="w-full bg-red-600 text-white py-4 rounded-xl font-bold">Ajouter</button>
-                    </div>
-                    <div id="list-issues-full" class="bg-white p-6 rounded-xl shadow border overflow-auto space-y-2 h-[500px]"></div>
-                </div>
-            </div>
-        </section>
-    </main>
-
-    <script>
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-            const targetTab = document.getElementById('tab-' + tabId);
-            const targetBtn = document.getElementById('btn-' + tabId);
-            if(targetTab && targetBtn) {
-                targetTab.classList.add('active');
-                targetBtn.classList.add('active');
-                document.getElementById('current-tab-title').innerText = targetBtn.innerText;
-            }
-        }
-    </script>
-    <script type="module" src="app.js"></script>
-</body>
-</html>
+            <button onclick="deletePlan('${p.id}')" class="text-red-400 hover:text-red-600 p-1">
+                🗑️
+            </button>
+        </div>
+    `).join('');
+});
