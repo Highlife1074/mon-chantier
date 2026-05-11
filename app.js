@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, collection, addDoc, onSnapshot, updateDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyB7hNu1hPJ_Cqbjqm_6cUN9BW_s77xjphE",
@@ -18,72 +18,24 @@ const storage = getStorage(app);
 let allPieces = [], allSequences = [], allIssues = [], allPlans = [];
 let tempCoords = null, selectedPieceId = null, currentPlanId = null;
 
-// --- INITIALISATION KONVA ---
 const container = document.getElementById('canvas-container');
-let stage = new Konva.Stage({ 
-    container: 'canvas-container', 
-    width: container.offsetWidth, 
-    height: container.offsetHeight,
-    draggable: true 
-});
+let stage = new Konva.Stage({ container: 'canvas-container', width: container.offsetWidth, height: container.offsetHeight });
 let layer = new Konva.Layer();
 stage.add(layer);
 
 container.addEventListener('contextmenu', (e) => e.preventDefault());
 
-// --- LOGIQUE ZOOM ---
-stage.on('wheel', (e) => {
-    e.evt.preventDefault();
-    const oldScale = stage.scaleX();
-    const pointer = stage.getPointerPosition();
-    const mousePointTo = { x: (pointer.x - stage.x()) / oldScale, y: (pointer.y - stage.y()) / oldScale };
-    const newScale = e.evt.deltaY > 0 ? oldScale / 1.1 : oldScale * 1.1;
-    stage.scale({ x: newScale, y: newScale });
-    stage.position({ x: pointer.x - mousePointTo.x * newScale, y: pointer.y - mousePointTo.y * newScale });
-    stage.batchDraw();
-});
-
-// --- DÉTECTION DE CLIC ROBUSTE (Différencie Clic et Drag) ---
-let isDragging = false;
-stage.on('mousedown touchstart', () => { isDragging = false; });
-stage.on('mousemove touchmove', () => { isDragging = true; });
-
-stage.on('mouseup touchend', (e) => {
-    if (isDragging) return; // Si on a bougé, ce n'est pas un clic de dessin
-    if (!currentPlanId) return;
-
-    // Calcul de la position réelle sur l'image
-    const transform = stage.getAbsoluteTransform().copy().invert();
-    const pos = transform.point(stage.getPointerPosition());
-
-    // Si on clique sur le fond (image) ou dans le vide
-    if (e.target.hasName('plan-image') || e.target === stage) {
-        tempCoords = pos;
-        selectedPieceId = null;
-        document.getElementById('p-edit-name').value = "";
-        document.getElementById('piece-editor').classList.remove('hidden');
-        renderPlan();
-    } 
-    // Si on clique sur une pièce existante
-    else if (e.target.name() === 'p-rect') {
-        selectedPieceId = e.target.id();
-        const p = allPieces.find(piece => piece.id === selectedPieceId);
-        document.getElementById('p-edit-name').value = p.nom;
-        document.getElementById('p-edit-seq').value = p.seqId;
-        document.getElementById('p-edit-date').value = p.startDate;
-        document.getElementById('piece-editor').classList.remove('hidden');
-        renderPlan();
-    }
-});
-
-// --- FONCTIONS FIREBASE ---
+// --- GESTION DES PLANS ---
 window.selectPlan = (id) => {
     const plan = allPlans.find(p => p.id === id);
     if (!plan) return;
     currentPlanId = id;
-    document.getElementById('no-plan-message').classList.add('hidden');
+    
+    const msg = document.getElementById('no-plan-message');
+    if (msg) msg.classList.add('hidden');
     layer.destroyChildren();
     
+    // Sécurité de chargement
     Konva.Image.fromURL(plan.url, (img) => {
         const scale = Math.min(stage.width() / img.width(), stage.height() / img.height());
         img.setAttrs({ x: 0, y: 0, name: 'plan-image' });
@@ -91,34 +43,100 @@ window.selectPlan = (id) => {
         stage.position({ x: 0, y: 0 });
         layer.add(img);
         renderPlan();
+    }, (err) => {
+        console.error("Erreur de chargement du plan :", err);
+        alert("Impossible de charger ce plan. Vérifiez s'il n'a pas été supprimé du stockage.");
     }, { crossOrigin: 'anonymous' });
 };
 
-window.processPiece = async () => {
-    const nom = document.getElementById('p-edit-name').value;
-    const seqId = document.getElementById('p-edit-seq').value;
-    const startDate = document.getElementById('p-edit-date').value;
-    if (!nom || !seqId || !startDate) return alert("Remplissez tout !");
+window.deletePlan = async (id, e) => {
+    if (e) e.stopPropagation(); // Empêche la sélection du plan lors du clic sur supprimer
+    if (!confirm("Supprimer ce plan et toutes ses zones dessinées ?")) return;
 
-    if (selectedPieceId) {
-        await updateDoc(doc(db, "pieces", selectedPieceId), { nom, seqId, startDate });
-    } else {
-        await addDoc(collection(db, "pieces"), { nom, seqId, startDate, x: tempCoords.x, y: tempCoords.y, planId: currentPlanId });
+    try {
+        const plan = allPlans.find(p => p.id === id);
+        // 1. On supprime les pièces liées à ce plan
+        const piecesToDelete = allPieces.filter(p => p.planId === id);
+        for (let p of piecesToDelete) {
+            await deleteDoc(doc(db, "pieces", p.id));
+        }
+        // 2. On supprime l'entrée Firestore du plan
+        await deleteDoc(doc(db, "plans", id));
+        
+        // Optionnel : On pourrait supprimer le fichier dans Firebase Storage ici aussi
+        
+        if (currentPlanId === id) {
+            currentPlanId = null;
+            layer.destroyChildren();
+            document.getElementById('no-plan-message').classList.remove('hidden');
+        }
+        alert("Plan supprimé.");
+    } catch (err) {
+        console.error("Erreur suppression plan:", err);
     }
-    cancelPieceEdit();
 };
 
-window.cancelPieceEdit = () => {
+// --- DESSIN CFAO ---
+let isDrawingPiece = false, startDrawPos = null, currentDrawRect = null, lastCapturedCoords = null;
+
+stage.on('mousedown touchstart', (e) => {
+    if (!currentPlanId || selectedPieceId) return;
+    if (!(e.target.hasName('plan-image') || e.target === stage)) return;
+
+    isDrawingPiece = true;
+    const transform = stage.getAbsoluteTransform().copy().invert();
+    const pos = transform.point(stage.getPointerPosition());
+    startDrawPos = pos;
+
+    currentDrawRect = new Konva.Rect({
+        x: pos.x, y: pos.y, width: 0, height: 0,
+        fill: 'rgba(37, 99, 235, 0.2)', stroke: '#2563eb', strokeWidth: 2, dash: [5, 5], name: 'temp-draw'
+    });
+    layer.add(currentDrawRect);
+    stage.batchDraw();
+});
+
+stage.on('mousemove touchmove', () => {
+    if (!isDrawingPiece || !currentDrawRect) return;
+    const transform = stage.getAbsoluteTransform().copy().invert();
+    const pos = transform.point(stage.getPointerPosition());
+    const newX = Math.min(pos.x, startDrawPos.x), newY = Math.min(pos.y, startDrawPos.y);
+    const newW = Math.abs(pos.x - startDrawPos.x), newH = Math.abs(pos.y - startDrawPos.y);
+    currentDrawRect.setAttrs({ x: newX, y: newY, width: newW, height: newH });
+    stage.batchDraw();
+});
+
+stage.on('mouseup touchend', (e) => {
+    if (!isDrawingPiece || !currentDrawRect) return;
+    if (currentDrawRect.width() < 10 || currentDrawRect.height() < 10) {
+        currentDrawRect.destroy(); isDrawingPiece = false;
+        if (e.target.name() === 'p-rect') {
+            selectedPieceId = e.target.id();
+            const p = allPieces.find(piece => piece.id === selectedPieceId);
+            document.getElementById('p-edit-name').value = p.nom;
+            document.getElementById('p-edit-seq').value = p.seqId;
+            document.getElementById('p-edit-date').value = p.startDate;
+            document.getElementById('piece-editor').classList.remove('hidden');
+            renderPlan();
+        }
+        return;
+    }
+    lastCapturedCoords = { x: currentDrawRect.x(), y: currentDrawRect.y(), width: currentDrawRect.width(), height: currentDrawRect.height() };
+    currentDrawRect.destroy(); currentDrawRect = null; isDrawingPiece = false;
     selectedPieceId = null;
-    document.getElementById('piece-editor').classList.add('hidden');
-    renderPlan();
-};
+    document.getElementById('p-edit-name').value = "";
+    document.getElementById('piece-editor').classList.remove('hidden');
+    layer.draw();
+});
 
-// --- SYNC TEMPS RÉEL ---
+// --- SYNC & RENDU ---
 onSnapshot(collection(db, "plans"), (s) => {
     allPlans = s.docs.map(d => ({ id: d.id, ...d.data() }));
     document.getElementById('plans-list').innerHTML = allPlans.map(p => `
-        <div onclick="selectPlan('${p.id}')" class="p-2 border rounded-lg text-[10px] bg-white cursor-pointer hover:bg-blue-50 transition-all ${currentPlanId === p.id ? 'border-blue-500 bg-blue-50 font-bold' : ''}">📄 ${p.name}</div>
+        <div onclick="selectPlan('${p.id}')" class="group relative p-2 border rounded-lg text-[10px] bg-white cursor-pointer hover:bg-blue-50 transition-all ${currentPlanId === p.id ? 'border-blue-500 bg-blue-50 font-bold' : ''}">
+            📄 ${p.name}
+            <button onclick="deletePlan('${p.id}', event)" class="delete-plan-btn hidden absolute right-2 top-2 text-red-500 hover:text-red-700">🗑️</button>
+        </div>
     `).join('');
 });
 
@@ -147,7 +165,7 @@ function renderPlan() {
         const isBlocked = allIssues.some(i => i.pieceId === p.id);
         const isSelected = selectedPieceId === p.id;
         layer.add(new Konva.Rect({ 
-            x: p.x, y: p.y, width: 40, height: 30, 
+            x: p.x, y: p.y, width: p.width || 40, height: p.height || 30, 
             fill: isBlocked ? '#ef4444' : (isSelected ? '#3b82f6' : '#94a3b8'), 
             opacity: 0.6, stroke: isSelected ? 'blue' : 'black', strokeWidth: isSelected ? 3 : 1,
             name: 'p-rect', id: p.id 
@@ -156,7 +174,19 @@ function renderPlan() {
     layer.draw();
 }
 
-// Les autres fonctions restent identiques...
+// --- LOGIQUE METIER ---
+window.processPiece = async () => {
+    const nom = document.getElementById('p-edit-name').value;
+    const seqId = document.getElementById('p-edit-seq').value;
+    const startDate = document.getElementById('p-edit-date').value;
+    if (!nom || !seqId || !startDate) return alert("Champs manquants !");
+    if (selectedPieceId) await updateDoc(doc(db, "pieces", selectedPieceId), { nom, seqId, startDate });
+    else await addDoc(collection(db, "pieces"), { nom, seqId, startDate, x: lastCapturedCoords.x, y: lastCapturedCoords.y, width: lastCapturedCoords.width, height: lastCapturedCoords.height, planId: currentPlanId });
+    cancelPieceEdit();
+};
+
+window.cancelPieceEdit = () => { selectedPieceId = null; document.getElementById('piece-editor').classList.add('hidden'); renderPlan(); };
+
 window.addTaskRow = (data = null) => {
     const div = document.createElement('div');
     div.className = "flex gap-2 task-row items-end bg-slate-50 p-1 rounded border";
@@ -178,12 +208,12 @@ window.saveSequence = async () => {
     document.getElementById('seq-name').value = ""; document.getElementById('tasks-list').innerHTML = ""; addTaskRow();
 };
 
+window.deleteSequence = async (id) => { if (confirm("Supprimer ?")) await deleteDoc(doc(db, "sequences", id)); };
 window.saveIssue = async () => {
     const desc = document.getElementById('issue-desc').value;
     if (desc) await addDoc(collection(db, "issues"), { desc, pieceId: null });
     document.getElementById('issue-desc').value = "";
 };
-
 window.assignToSelected = async (id) => { if (selectedPieceId) await updateDoc(doc(db, "issues", id), { pieceId: selectedPieceId }); };
 
 function updateMenus() {
@@ -203,7 +233,7 @@ function addWorkDays(startDate, days) {
 
 function renderGantt() {
     const container = document.getElementById('gantt-render');
-    container.innerHTML = "<h3 class='font-bold text-xs uppercase mb-4'>Planning Général</h3>";
+    container.innerHTML = "<h3 class='font-bold text-xs uppercase mb-4'>Planning Général PERT</h3>";
     let busy = {};
     allPieces.sort((a,b) => new Date(a.startDate) - new Date(b.startDate)).forEach(piece => {
         const seq = allSequences.find(s => s.id === piece.seqId);
