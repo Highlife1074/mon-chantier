@@ -17,60 +17,48 @@ const storage = getStorage(app);
 
 let allPieces = [], allSequences = [], allIssues = [], allPlans = [];
 let tempCoords = null, selectedPieceId = null, currentPlanId = null;
-let isDrawingPiece = false, startDrawPos = null, currentDrawRect = null, lastCapturedCoords = null;
+let isDrawingPiece = false, startDrawPos = null, currentDrawRect = null;
 
-// --- INITIALISATION KONVA ---
 const container = document.getElementById('canvas-container');
 let stage = new Konva.Stage({ 
     container: 'canvas-container', 
     width: container.offsetWidth, 
     height: container.offsetHeight,
-    draggable: false // On gère le drag manuellement pour ne pas interférer avec le dessin
+    draggable: true // Activé pour le Pan
 });
 let layer = new Konva.Layer();
 stage.add(layer);
 
-// Désactiver le menu contextuel pour libérer le clic droit pour le PAN
 container.addEventListener('contextmenu', (e) => e.preventDefault());
 
-// --- MOTEUR DE ZOOM (Molette) ---
+// --- ZOOM (Molette) ---
 stage.on('wheel', (e) => {
     e.evt.preventDefault();
     const oldScale = stage.scaleX();
     const pointer = stage.getPointerPosition();
-
-    // Position relative du curseur avant le zoom
-    const mousePointTo = {
-        x: (pointer.x - stage.x()) / oldScale,
-        y: (pointer.y - stage.y()) / oldScale,
-    };
-
-    // Calcul du nouveau scale
+    const mousePointTo = { x: (pointer.x - stage.x()) / oldScale, y: (pointer.y - stage.y()) / oldScale };
     const newScale = e.evt.deltaY > 0 ? oldScale / 1.1 : oldScale * 1.1;
     stage.scale({ x: newScale, y: newScale });
-
-    // Ajustement de la position pour rester centré sur la souris
-    const newPos = {
-        x: pointer.x - mousePointTo.x * newScale,
-        y: pointer.y - mousePointTo.y * newScale,
-    };
-    stage.position(newPos);
+    stage.position({ x: pointer.x - mousePointTo.x * newScale, y: pointer.y - mousePointTo.y * newScale });
     stage.batchDraw();
 });
 
-// --- MOTEUR DE DÉPLACEMENT (Pan via Clic Droit ou Molette) ---
+// --- NAVIGATION (Clic Droit ou Molette pour déplacer) ---
 stage.on('mousedown touchstart', (e) => {
-    // Si clic droit (bouton 2) ou clic molette (bouton 1), on active le déplacement du plan
-    if (e.evt.button === 2 || e.evt.button === 1) {
-        stage.startDrag();
+    const isRightClick = e.evt.button === 2 || e.evt.button === 1;
+    const isLeftClick = e.evt.button === 0;
+
+    if (isRightClick) {
+        stage.draggable(true);
+    } else if (isLeftClick) {
+        stage.draggable(false); // Désactive le Pan pour dessiner
+        startDrawing(e);
     }
 });
 
-// --- LOGIQUE DE DESSIN (Clic Gauche uniquement) ---
-stage.on('mousedown touchstart', (e) => {
-    // On ne dessine que si c'est le clic gauche (bouton 0)
-    if (e.evt.button !== 0 || !currentPlanId || selectedPieceId) return;
-
+// --- DESSIN (Clic Gauche) ---
+function startDrawing(e) {
+    if (!currentPlanId || selectedPieceId) return;
     const isBg = e.target.hasName('plan-image') || e.target === stage;
     if (!isBg) return;
 
@@ -81,11 +69,10 @@ stage.on('mousedown touchstart', (e) => {
 
     currentDrawRect = new Konva.Rect({
         x: pos.x, y: pos.y, width: 0, height: 0,
-        fill: 'rgba(37, 99, 235, 0.2)', stroke: '#2563eb', strokeWidth: 2, dash: [5, 5], 
-        name: 'temp-draw', listening: false 
+        fill: 'rgba(37, 99, 235, 0.3)', stroke: '#2563eb', strokeWidth: 2, dash: [5, 5], name: 'temp-draw'
     });
     layer.add(currentDrawRect);
-});
+}
 
 stage.on('mousemove touchmove', () => {
     if (!isDrawingPiece || !currentDrawRect) return;
@@ -103,18 +90,66 @@ stage.on('mousemove touchmove', () => {
 
 stage.on('mouseup touchend', (e) => {
     if (isDrawingPiece && currentDrawRect) {
-        if (currentDrawRect.width() > 5 && currentDrawRect.height() > 5) {
-            lastCapturedCoords = { x: currentDrawRect.x(), y: currentDrawRect.y(), width: currentDrawRect.width(), height: currentDrawRect.height() };
-            openEditor();
+        if (currentDrawRect.width() > 10 && currentDrawRect.height() > 10) {
+            tempCoords = { x: currentDrawRect.x(), y: currentDrawRect.y(), width: currentDrawRect.width(), height: currentDrawRect.height() };
+            selectedPieceId = null;
+            document.getElementById('piece-editor').classList.remove('hidden');
+            document.getElementById('p-edit-name').value = "";
         }
         currentDrawRect.destroy();
         currentDrawRect = null;
         isDrawingPiece = false;
         layer.draw();
     }
+    stage.draggable(true); // Réactive le pan
 });
 
-// --- GESTION DES PLANS ---
+// --- RENDU DES PIÈCES (Avec Texte visible) ---
+function renderPlan() {
+    layer.find('.p-group').forEach(g => g.destroy());
+    
+    allPieces.filter(p => p.planId === currentPlanId).forEach(p => {
+        const isBlocked = allIssues.some(i => i.pieceId === p.id);
+        const isSelected = selectedPieceId === p.id;
+        
+        const group = new Konva.Group({ x: p.x, y: p.y, id: p.id, name: 'p-group' });
+        
+        const rect = new Konva.Rect({
+            width: p.width || 50, height: p.height || 40,
+            fill: isBlocked ? '#ef4444' : (isSelected ? '#3b82f6' : '#94a3b8'),
+            opacity: 0.7, stroke: isSelected ? 'blue' : 'black', strokeWidth: isSelected ? 3 : 1
+        });
+
+        const text = new Konva.Text({
+            text: p.nom, fontSize: 12, fontStyle: 'bold', width: p.width || 50, height: p.height || 40,
+            align: 'center', verticalAlign: 'middle', fill: isBlocked ? 'white' : 'black',
+            listening: false // Laisse passer le clic vers le groupe
+        });
+
+        group.add(rect).add(text);
+        
+        group.on('click tap', (e) => {
+            e.cancelBubble = true;
+            selectExistingPiece(p.id);
+        });
+
+        layer.add(group);
+    });
+    layer.draw();
+}
+
+function selectExistingPiece(id) {
+    selectedPieceId = id;
+    const p = allPieces.find(piece => piece.id === id);
+    if (!p) return;
+    document.getElementById('piece-editor').classList.remove('hidden');
+    document.getElementById('p-edit-name').value = p.nom;
+    document.getElementById('p-edit-seq').value = p.seqId || "";
+    document.getElementById('p-edit-date').value = p.startDate || "";
+    renderPlan();
+}
+
+// --- LOGIQUE PLANS ---
 window.selectPlan = (id) => {
     const plan = allPlans.find(p => p.id === id);
     if (!plan) return;
@@ -126,64 +161,45 @@ window.selectPlan = (id) => {
         const scale = Math.min(stage.width() / img.width(), stage.height() / img.height());
         img.setAttrs({ x: 0, y: 0, name: 'plan-image' });
         stage.scale({ x: scale, y: scale });
-        stage.position({ x: 0, y: 0 }); // Centrage initial
+        stage.position({ x: 0, y: 0 });
         layer.add(img);
         renderPlan();
     }, { crossOrigin: 'anonymous' });
 };
 
-// --- RENDU DES PIÈCES AVEC TEXTE ---
-function renderPlan() {
-    layer.find('.p-group').forEach(g => g.destroy());
-    allPieces.filter(p => p.planId === currentPlanId).forEach(p => {
-        const isBlocked = allIssues.some(i => i.pieceId === p.id);
-        const isSelected = selectedPieceId === p.id;
-        
-        const group = new Konva.Group({ x: p.x, y: p.y, id: p.id, name: 'p-group' });
-        const rect = new Konva.Rect({
-            width: p.width, height: p.height,
-            fill: isBlocked ? '#ef4444' : (isSelected ? '#3b82f6' : '#94a3b8'),
-            opacity: 0.6, stroke: isSelected ? 'blue' : 'black', strokeWidth: isSelected ? 2 : 1
-        });
-        const text = new Konva.Text({
-            text: p.nom, fontSize: 10, width: p.width, height: p.height,
-            align: 'center', verticalAlign: 'middle', fill: 'black', listening: false
-        });
+window.deletePlan = async (id, event) => {
+    if (event) event.stopPropagation();
+    if (!confirm("Supprimer ce plan ?")) return;
+    try {
+        const piecesToDel = allPieces.filter(p => p.planId === id);
+        for (const p of piecesToDel) await deleteDoc(doc(db, "pieces", p.id));
+        await deleteDoc(doc(db, "plans", id));
+        if (currentPlanId === id) {
+            currentPlanId = null;
+            layer.destroyChildren();
+            document.getElementById('no-plan-message')?.classList.remove('hidden');
+        }
+    } catch (e) { alert("Erreur rules delete"); }
+};
 
-        group.add(rect).add(text);
-        group.on('click tap', () => selectExistingPiece(p.id));
-        layer.add(group);
-    });
-    layer.draw();
-}
-
-function selectExistingPiece(id) {
-    selectedPieceId = id;
-    const p = allPieces.find(piece => piece.id === id);
-    openEditor(p);
-    renderPlan();
-}
-
-function openEditor(data = null) {
-    document.getElementById('piece-editor').classList.remove('hidden');
-    document.getElementById('p-edit-name').value = data ? data.nom : "";
-    document.getElementById('p-edit-date').value = data ? data.startDate : "";
-    document.getElementById('p-edit-seq').value = data ? data.seqId : "";
-}
-
+// --- PERSISTENCE ---
 window.processPiece = async () => {
     const nom = document.getElementById('p-edit-name').value;
     const seqId = document.getElementById('p-edit-seq').value;
     const startDate = document.getElementById('p-edit-date').value;
-    if (selectedPieceId) {
-        await updateDoc(doc(db, "pieces", selectedPieceId), { nom, seqId, startDate });
-    } else {
-        await addDoc(collection(db, "pieces"), { 
-            nom, seqId, startDate, planId: currentPlanId,
-            x: lastCapturedCoords.x, y: lastCapturedCoords.y, width: lastCapturedCoords.width, height: lastCapturedCoords.height 
-        });
-    }
-    window.cancelPieceEdit();
+    if (!nom || !seqId || !startDate) return alert("Champs manquants !");
+
+    try {
+        if (selectedPieceId) {
+            await updateDoc(doc(db, "pieces", selectedPieceId), { nom, seqId, startDate });
+        } else {
+            await addDoc(collection(db, "pieces"), { 
+                nom, seqId, startDate, planId: currentPlanId,
+                x: tempCoords.x, y: tempCoords.y, width: tempCoords.width, height: tempCoords.height 
+            });
+        }
+        window.cancelPieceEdit();
+    } catch (e) { alert("Erreur sauvegarde pièce"); }
 };
 
 window.cancelPieceEdit = () => {
@@ -192,22 +208,126 @@ window.cancelPieceEdit = () => {
     renderPlan();
 };
 
-// --- SYNCHRONISATION ---
+// --- SYNC FIREBASE ---
 onSnapshot(collection(db, "plans"), (s) => {
     allPlans = s.docs.map(d => ({ id: d.id, ...d.data() }));
     document.getElementById('plans-list').innerHTML = allPlans.map(p => `
-        <div class="flex items-center justify-between group p-2 border rounded-lg bg-white mb-1">
-            <div onclick="selectPlan('${p.id}')" class="flex-1 cursor-pointer text-[10px] truncate">📄 ${p.name}</div>
+        <div class="flex items-center justify-between group p-2 border rounded-lg bg-white mb-1 shadow-sm">
+            <div onclick="selectPlan('${p.id}')" class="flex-1 cursor-pointer text-[10px] truncate ${currentPlanId === p.id ? 'text-blue-600 font-bold' : ''}">📄 ${p.name}</div>
             <button onclick="deletePlan('${p.id}', event)" class="text-red-400 opacity-0 group-hover:opacity-100">🗑️</button>
         </div>`).join('');
 });
 
 onSnapshot(collection(db, "pieces"), (s) => {
     allPieces = s.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderPlan();
+    renderPlan(); renderGantt();
 });
 
-// Initialisation au chargement
-window.addTaskRow = () => { /* Même fonction que précédemment */ };
-window.saveSequence = async () => { /* Même fonction que précédemment */ };
-// ... ajoutez ici vos fonctions de gestion de séquences et bloquants restantes ...
+onSnapshot(collection(db, "sequences"), (s) => {
+    allSequences = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    updateMenus(); renderGantt();
+    document.getElementById('list-sequences').innerHTML = allSequences.map(s => `
+        <div class="p-2 bg-slate-50 border rounded text-[10px] flex justify-between group">
+            <strong>${s.name}</strong>
+            <button onclick="deleteSequence('${s.id}')" class="text-red-400 opacity-0 group-hover:opacity-100">🗑️</button>
+        </div>`).join('');
+});
+
+onSnapshot(collection(db, "issues"), (s) => {
+    allIssues = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderPlan();
+    const unassigned = allIssues.filter(i => !i.pieceId);
+    document.getElementById('count-unassigned').innerText = unassigned.length;
+    document.getElementById('sidebar-issues-list').innerHTML = unassigned.map(i => `
+        <button onclick="assignToSelected('${i.id}')" class="w-full p-2 text-left bg-red-50 text-red-700 text-[10px] rounded border border-red-100 mb-1 hover:bg-red-200">⚠️ ${i.desc}</button>
+    `).join('');
+});
+
+// --- AUTRES FONCTIONS ---
+window.addTaskRow = () => {
+    const div = document.createElement('div');
+    div.className = "flex gap-2 task-row items-end bg-slate-50 p-1 rounded border border-slate-200";
+    div.innerHTML = `
+        <input type="text" class="w-1/3 border p-1 rounded text-[10px] t-name" placeholder="Tâche">
+        <input type="number" class="w-12 border p-1 rounded text-[10px] t-days" placeholder="Jours">
+        <input type="text" class="w-20 border p-1 rounded text-[10px] t-ent" placeholder="Ent.">
+        <select class="border p-1 rounded text-[8px] t-type"><option value="FS">FS</option><option value="SS">SS</option></select>
+        <input type="number" placeholder="Préc." class="w-12 border p-1 rounded text-[10px] t-prec">
+        <input type="number" class="w-10 border p-1 rounded text-[10px] t-lag" value="0">
+        <button onclick="this.parentElement.remove()" class="text-red-500 font-bold px-1">×</button>`;
+    document.getElementById('tasks-list').appendChild(div);
+};
+
+window.saveSequence = async () => {
+    const name = document.getElementById('seq-name').value;
+    const tasks = Array.from(document.querySelectorAll('.task-row')).map((row, idx) => ({
+        id: idx + 1, name: row.querySelector('.t-name').value, days: parseInt(row.querySelector('.t-days').value) || 1, 
+        ent: row.querySelector('.t-ent').value, type: row.querySelector('.t-type').value, 
+        prec: row.querySelector('.t-prec').value ? parseInt(row.querySelector('.t-prec').value) : (idx > 0 ? idx : null), 
+        lag: parseInt(row.querySelector('.t-lag').value) || 0
+    }));
+    if (name) await addDoc(collection(db, "sequences"), { name, tasks });
+    document.getElementById('seq-name').value = ""; document.getElementById('tasks-list').innerHTML = ""; addTaskRow();
+};
+
+window.deleteSequence = async (id) => { if (confirm("Supprimer ?")) await deleteDoc(doc(db, "sequences", id)); };
+window.saveIssue = async () => {
+    const desc = document.getElementById('issue-desc').value;
+    if (desc) await addDoc(collection(db, "issues"), { desc, pieceId: null });
+    document.getElementById('issue-desc').value = "";
+};
+window.assignToSelected = async (id) => { if (selectedPieceId) await updateDoc(doc(db, "issues", id), { pieceId: selectedPieceId }); };
+
+function updateMenus() {
+    const sOptions = allSequences.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+    document.querySelectorAll('.select-seq-list').forEach(sel => sel.innerHTML = '<option value="">Choisir...</option>' + sOptions);
+}
+
+function addWorkDays(startDate, days) {
+    let date = new Date(startDate);
+    let added = 0;
+    while (added < Math.abs(days)) {
+        date.setDate(date.getDate() + (days > 0 ? 1 : -1));
+        if (date.getDay() !== 0) added++;
+    }
+    return date;
+}
+
+function renderGantt() {
+    const container = document.getElementById('gantt-render');
+    if (!container) return;
+    container.innerHTML = "<h3 class='font-bold text-xs uppercase mb-4'>Planning de Production PERT</h3>";
+    let busy = {};
+    allPieces.sort((a,b) => new Date(a.startDate) - new Date(b.startDate)).forEach(piece => {
+        const seq = allSequences.find(s => s.id === piece.seqId);
+        if (!seq) return;
+        let pHTML = `<div class='p-3 border rounded-xl bg-white shadow-sm mb-4 border-l-4 border-blue-600'><div class='font-bold text-xs'>${piece.nom}</div>`;
+        let calculatedTasks = {};
+        seq.tasks.forEach((t) => {
+            let s = (!t.prec) ? new Date(piece.startDate) : (t.type === "FS" ? addWorkDays(calculatedTasks[t.prec]?.end, t.lag) : addWorkDays(calculatedTasks[t.prec]?.start, t.lag));
+            if (busy[t.ent] && s < busy[t.ent]) s = new Date(busy[t.ent]);
+            let e = addWorkDays(s, t.days);
+            calculatedTasks[t.id] = { start: s, end: e };
+            pHTML += `<div class='text-[9px] flex justify-between border-t py-1 opacity-80'><span>#${t.id} ${t.name} (${t.ent})</span><span class='font-bold text-blue-700'>${s.toLocaleDateString()} - ${e.toLocaleDateString()}</span></div>`;
+            busy[t.ent] = new Date(e);
+        });
+        container.innerHTML += pHTML + "</div>";
+    });
+}
+
+const miniDrop = document.getElementById('mini-drop-zone');
+miniDrop.ondrop = async (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) {
+        document.getElementById('upload-progress')?.classList.remove('hidden');
+        const storageRef = ref(storage, `plans/${Date.now()}_${file.name}`);
+        await uploadBytes(storageRef, file);
+        const url = await getDownloadURL(storageRef);
+        await addDoc(collection(db, "plans"), { name: file.name, url: url, createdAt: Date.now() });
+        document.getElementById('upload-progress')?.classList.add('hidden');
+    }
+};
+miniDrop.ondragover = (e) => e.preventDefault();
+
+addTaskRow();
