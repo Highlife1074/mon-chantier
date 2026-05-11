@@ -3,103 +3,118 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chantier Pro - Pilotage Expert</title>
+    <title>Chantier Pro - Pilotage Dynamique</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/konva@9/konva.min.js"></script>
-    <link rel="stylesheet" href="style.css">
     <style>
         .tab-content { display: none !important; }
         .tab-content.active { display: flex !important; flex-direction: column; height: 100%; }
+        .nav-btn.active { background-color: #2563eb; color: white; }
     </style>
 </head>
-<body class="bg-slate-100 h-screen flex overflow-hidden font-sans">
+<body class="bg-slate-100 h-screen flex overflow-hidden font-sans text-slate-900">
 
     <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20">
-        <div class="p-6 text-xl font-bold border-b border-slate-800">🏗️ Pilotage Chantier</div>
+        <div class="p-6 text-xl font-bold border-b border-slate-800 text-blue-400 font-mono">🏗️ CHANTIER PRO</div>
         <nav class="flex-1 p-4 space-y-2 mt-4">
-            <button onclick="switchTab('plan')" class="nav-btn flex items-center w-full p-3 rounded-lg bg-blue-600 text-white" id="btn-plan">📍 Plan & Pièces</button>
-            <button onclick="switchTab('gantt')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-300 hover:bg-slate-800" id="btn-gantt">📅 Planning 6j/7</button>
-            <button onclick="switchTab('sequences')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-300 hover:bg-slate-800" id="btn-sequences">⚙️ Séquences</button>
-            <button onclick="switchTab('issues')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-300 hover:bg-slate-800" id="btn-issues">⚠️ Base Bloquants</button>
+            <button onclick="switchTab('plan')" class="nav-btn active flex items-center w-full p-3 rounded-lg transition-colors" id="btn-plan">📍 Plan & Affectation</button>
+            <button onclick="switchTab('gantt')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-gantt">📅 Planning 6j/7</button>
+            <button onclick="switchTab('sequences')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-sequences">⚙️ Séquences Travaux</button>
+            <button onclick="switchTab('issues')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-issues">⚠️ Base Bloquants</button>
         </nav>
     </aside>
 
     <main class="flex-1 flex flex-col overflow-hidden">
         <header class="h-14 bg-white border-b border-slate-200 flex items-center px-8 justify-between shadow-sm">
-            <h2 id="current-tab-title" class="text-lg font-bold text-slate-700 font-bold">Plan & Pièces</h2>
-            <div class="text-[10px] text-slate-400 font-mono">CALENDRIER : LUN-SAM</div>
+            <h2 id="current-tab-title" class="text-lg font-bold text-slate-700">Plan & Affectation</h2>
+            <div class="text-[10px] bg-slate-100 px-3 py-1 rounded-full font-bold text-slate-500">CALENDRIER LUN-SAM</div>
         </header>
 
         <section class="flex-1 p-4 overflow-hidden">
             
             <div id="tab-plan" class="tab-content active h-full flex flex-row gap-4">
                 <div class="flex-1 flex flex-col">
-                    <div id="drag-drop-zone" class="flex-1 border-4 border-dashed border-slate-300 rounded-xl flex items-center justify-center bg-white text-slate-400">Glissez le plan ici</div>
+                    <div id="drag-drop-zone" class="flex-1 border-4 border-dashed border-slate-300 rounded-xl flex items-center justify-center bg-white text-slate-400">Déposez le plan ici</div>
                     <div id="canvas-container" class="hidden flex-1 shadow-inner rounded-xl overflow-hidden bg-slate-200 border"></div>
                     
-                    <div id="piece-editor" class="hidden mt-4 p-4 bg-white rounded-xl shadow-lg border border-blue-200 flex gap-4 items-center">
-                        <input type="text" id="new-piece-name" placeholder="Nom" class="border p-2 rounded w-40">
-                        <select id="new-piece-seq" class="border p-2 rounded select-seq-list"></select>
-                        <input type="date" id="new-piece-date" class="border p-2 rounded">
-                        <button onclick="saveNewPiece()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold">Créer</button>
+                    <div id="piece-editor" class="hidden mt-4 p-4 bg-white rounded-xl shadow-lg border-2 border-blue-100 flex gap-4 items-end animate-in fade-in slide-in-from-bottom-4">
+                        <div class="flex-1">
+                            <label class="text-[10px] font-bold uppercase text-slate-400">Nom de la pièce</label>
+                            <input type="text" id="p-edit-name" class="w-full border p-2 rounded text-sm">
+                        </div>
+                        <div class="flex-1">
+                            <label class="text-[10px] font-bold uppercase text-slate-400">Séquence à appliquer</label>
+                            <select id="p-edit-seq" class="w-full border p-2 rounded text-sm select-seq-list"></select>
+                        </div>
+                        <div class="flex-1">
+                            <label class="text-[10px] font-bold uppercase text-slate-400">Date de début</label>
+                            <input type="date" id="p-edit-date" class="w-full border p-2 rounded text-sm">
+                        </div>
+                        <button id="btn-save-piece" onclick="processPiece()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors">Valider</button>
+                        <button onclick="cancelPieceEdit()" class="text-slate-400 text-xs hover:underline mb-2">Annuler</button>
                     </div>
                 </div>
 
                 <div class="w-72 bg-white rounded-xl shadow-lg border p-4 flex flex-col">
-                    <h3 class="font-bold text-slate-700 mb-4 border-b pb-2">Assigner Bloquant</h3>
-                    <div id="sidebar-issues-list" class="flex-1 overflow-auto space-y-2"></div>
+                    <h3 class="font-bold text-slate-700 mb-2 border-b pb-2 flex justify-between">
+                        Bloquants 
+                        <span class="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded-full" id="count-unassigned">0</span>
+                    </h3>
+                    <div id="sidebar-issues-list" class="flex-1 overflow-auto space-y-2 py-2"></div>
                 </div>
             </div>
 
             <div id="tab-gantt" class="tab-content">
-                <div id="gantt-render" class="bg-white p-6 rounded-xl shadow border h-full overflow-auto space-y-4"></div>
+                <div id="gantt-render" class="bg-white p-6 rounded-xl shadow border h-full overflow-auto space-y-6"></div>
             </div>
 
             <div id="tab-sequences" class="tab-content overflow-auto">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow border">
-                        <h3 class="font-bold mb-4">Nouvelle Séquence</h3>
-                        <input type="text" id="seq-name" placeholder="Nom de la séquence" class="w-full border p-3 mb-4 rounded font-bold">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+                    <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow border overflow-auto">
+                        <h3 class="font-bold mb-4" id="seq-form-title">Nouvelle Séquence Type</h3>
+                        <input type="text" id="seq-name" placeholder="Nom du pack (ex: Lot Peinture)" class="w-full border p-3 mb-4 rounded font-bold bg-slate-50">
+                        
                         <div id="tasks-list" class="space-y-2">
-                            <div class="flex gap-2 bg-slate-50 p-2 rounded items-end">
-                                <div class="flex-1"><label class="text-[10px]">Tâche</label><input type="text" class="w-full border p-1 rounded t-name"></div>
-                                <div class="w-16"><label class="text-[10px]">Jours</label><input type="number" class="w-full border p-1 rounded t-days"></div>
-                                <div class="w-20"><label class="text-[10px]">Ent.</label><input type="text" class="w-full border p-1 rounded t-ent"></div>
-                                <div class="w-24">
-                                    <label class="text-[10px]">Lien</label>
-                                    <select class="w-full border p-1 rounded t-type"><option value="FS">Fin-Début</option><option value="SS">Début-Début</option></select>
-                                </div>
-                                <div class="w-16"><label class="text-[10px]">Lag</label><input type="number" value="0" class="w-full border p-1 rounded t-lag"></div>
-                                <div class="flex flex-col items-center"><label class="text-[10px]">Overlap</label><input type="checkbox" class="t-overlap"></div>
+                            </div>
+                        
+                        <div class="flex justify-between items-center mt-6">
+                            <button onclick="addTaskRow()" class="text-blue-600 font-bold text-sm">+ Ajouter une étape</button>
+                            <div class="flex gap-2">
+                                <button id="btn-cancel-seq" onclick="resetSeqForm()" class="hidden px-4 py-2 text-slate-500 font-bold">Annuler</button>
+                                <button id="btn-save-seq" onclick="saveSequence()" class="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-black">Enregistrer le modèle</button>
                             </div>
                         </div>
-                        <button onclick="addTaskRow()" class="text-blue-600 font-bold mt-4">+ Tâche</button>
-                        <button onclick="saveSequence()" class="w-full bg-slate-900 text-white py-3 rounded-xl font-bold mt-6">Enregistrer</button>
                     </div>
-                    <div id="list-sequences" class="bg-white p-6 rounded-xl shadow border space-y-2 h-fit"></div>
+                    <div class="bg-white p-6 rounded-xl shadow border overflow-auto">
+                        <h3 class="font-bold mb-4 border-b pb-2 text-slate-500 uppercase text-xs">Bibliothèque de Séquences</h3>
+                        <div id="list-sequences" class="space-y-3"></div>
+                    </div>
                 </div>
             </div>
 
             <div id="tab-issues" class="tab-content">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="bg-white p-6 rounded-xl shadow border">
-                        <h3 class="font-bold mb-4 text-red-600">Nouveau Bloquant (Générique)</h3>
-                        <textarea id="issue-desc" placeholder="Description..." class="w-full border p-3 mb-4 rounded h-32"></textarea>
-                        <button onclick="saveIssue()" class="w-full bg-red-600 text-white py-3 rounded-xl font-bold">Ajouter à la base</button>
+                        <h3 class="font-bold mb-4 text-red-600">Enregistrer un nouveau Bloquant</h3>
+                        <textarea id="issue-desc" placeholder="Décrivez le problème technique ou administratif..." class="w-full border p-3 mb-4 rounded h-32 bg-slate-50"></textarea>
+                        <button onclick="saveIssue()" class="w-full bg-red-600 text-white py-4 rounded-xl font-bold shadow-lg">Ajouter à la base de données</button>
                     </div>
-                    <div id="list-issues-full" class="bg-white p-6 rounded-xl shadow border space-y-2"></div>
+                    <div class="bg-white p-6 rounded-xl shadow border h-[500px] overflow-auto">
+                        <h3 class="font-bold mb-4">Base de données complète</h3>
+                        <div id="list-issues-full" class="space-y-2"></div>
+                    </div>
                 </div>
             </div>
 
         </section>
-    </section>
+    </main>
 
     <script>
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.nav-btn').forEach(el => { el.classList.remove('bg-blue-600','text-white'); el.classList.add('text-slate-300'); });
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
             document.getElementById('tab-' + tabId).classList.add('active');
-            document.getElementById('btn-' + tabId).classList.add('bg-blue-600','text-white');
+            document.getElementById('btn-' + tabId).classList.add('active');
             document.getElementById('current-tab-title').innerText = document.getElementById('btn-' + tabId).innerText;
         }
     </script>
