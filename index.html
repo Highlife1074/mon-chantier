@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chantier Pro - Multi-Plans & Ordonnancement</title>
+    <title>Chantier Pro - Pilotage Expert</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/konva@9/konva.min.js"></script>
+    <link rel="stylesheet" href="style.css">
     <style>
         .tab-content { display: none !important; }
         .tab-content.active { display: flex !important; flex-direction: column; height: 100%; }
         .nav-btn.active { background-color: #2563eb; color: white; }
-        .plan-item.active { border-color: #2563eb; background-color: #eff6ff; }
     </style>
 </head>
 <body class="bg-slate-100 h-screen flex overflow-hidden font-sans text-slate-900">
@@ -19,9 +19,9 @@
         <div class="p-6 text-xl font-bold border-b border-slate-800 text-blue-400 font-mono">🏗️ CHANTIER PRO</div>
         <nav class="flex-1 p-4 space-y-2 mt-4">
             <button onclick="switchTab('plan')" class="nav-btn active flex items-center w-full p-3 rounded-lg" id="btn-plan">📍 Plans & Dessin</button>
-            <button onclick="switchTab('gantt')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-gantt">📅 Planning Expert</button>
+            <button onclick="switchTab('gantt')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-gantt">📅 Planning 6j/7</button>
             <button onclick="switchTab('sequences')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-sequences">⚙️ Séquences</button>
-            <button onclick="switchTab('issues')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-issues">⚠️ Bloquants</button>
+            <button onclick="switchTab('issues')" class="nav-btn flex items-center w-full p-3 rounded-lg text-slate-400 hover:bg-slate-800" id="btn-issues">⚠️ Base Bloquants</button>
         </nav>
     </aside>
 
@@ -37,39 +37,38 @@
                 
                 <div class="w-64 flex flex-col gap-4">
                     <div id="mini-drop-zone" class="border-2 border-dashed border-slate-300 rounded-xl p-4 bg-white text-center text-[10px] text-slate-400 hover:border-blue-400 cursor-pointer transition-all">
-                        + Glissez un nouveau plan ici
+                        + Glissez une IMAGE de plan ici
                     </div>
                     <div class="flex-1 bg-white rounded-xl shadow-sm border p-3 overflow-auto">
-                        <h3 class="text-[10px] font-bold uppercase text-slate-400 mb-3 tracking-widest border-b pb-1">Mes Plans</h3>
-                        <div id="plans-list" class="space-y-2">
-                            </div>
+                        <h3 class="text-[10px] font-bold uppercase text-slate-400 mb-3 border-b pb-1">Ma Bibliothèque</h3>
+                        <div id="plans-list" class="space-y-2"></div>
                     </div>
                 </div>
 
                 <div class="flex-1 flex flex-col relative">
                     <div id="canvas-container" class="flex-1 shadow-inner rounded-xl overflow-hidden bg-slate-200 border border-slate-300 relative">
-                        <div id="no-plan-message" class="absolute inset-0 flex items-center justify-center text-slate-400 italic">
+                        <div id="no-plan-message" class="absolute inset-0 flex items-center justify-center text-slate-400 italic text-center p-8">
                             Sélectionnez un plan à gauche pour commencer à dessiner
                         </div>
                     </div>
                     
-                    <div id="piece-editor" class="hidden mt-4 p-4 bg-white rounded-xl shadow-lg border-2 border-blue-100 flex gap-4 items-end">
-                        <div class="flex-1"><label class="text-[10px] font-bold uppercase text-slate-400">Nom</label><input type="text" id="p-edit-name" class="w-full border p-2 rounded text-sm bg-slate-50"></div>
-                        <div class="flex-1"><label class="text-[10px] font-bold uppercase text-slate-400">Séquence</label><select id="p-edit-seq" class="w-full border p-2 rounded text-sm select-seq-list"></select></div>
-                        <div class="flex-1"><label class="text-[10px] font-bold uppercase text-slate-400">Date Début</label><input type="date" id="p-edit-date" class="w-full border p-2 rounded text-sm"></div>
-                        <button onclick="processPiece()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold">Valider</button>
+                    <div id="piece-editor" class="hidden mt-4 p-4 bg-white rounded-xl shadow-lg border-2 border-blue-100 flex gap-4 items-end animate-in fade-in slide-in-from-bottom-4">
+                        <div class="flex-1"><label class="text-[10px] font-bold text-slate-400 uppercase">Nom</label><input type="text" id="p-edit-name" class="w-full border p-2 rounded text-sm bg-slate-50"></div>
+                        <div class="flex-1"><label class="text-[10px] font-bold text-slate-400 uppercase">Séquence</label><select id="p-edit-seq" class="w-full border p-2 rounded text-sm select-seq-list"></select></div>
+                        <div class="flex-1"><label class="text-[10px] font-bold text-slate-400 uppercase">Date Début</label><input type="date" id="p-edit-date" class="w-full border p-2 rounded text-sm"></div>
+                        <button onclick="processPiece()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold shadow-lg">Valider</button>
                         <button onclick="cancelPieceEdit()" class="text-slate-400 text-xs mb-2">Annuler</button>
                     </div>
                 </div>
 
                 <div class="w-64 bg-white rounded-xl shadow-lg border p-4 flex flex-col">
-                    <h3 class="font-bold text-slate-700 mb-2 border-b pb-2 text-xs">Bloquants libres</h3>
+                    <h3 class="font-bold text-slate-700 mb-2 border-b pb-2 text-xs">Assigner Bloquant</h3>
                     <div id="sidebar-issues-list" class="flex-1 overflow-auto space-y-2"></div>
                 </div>
             </div>
 
             <div id="tab-gantt" class="tab-content">
-                <div id="gantt-render" class="bg-white p-6 rounded-xl shadow border h-full overflow-auto space-y-4 font-mono text-xs"></div>
+                <div id="gantt-render" class="bg-white p-6 rounded-xl shadow border h-full overflow-auto space-y-4"></div>
             </div>
 
             <div id="tab-sequences" class="tab-content overflow-auto">
@@ -78,21 +77,21 @@
                         <h3 class="font-bold mb-4" id="seq-form-title">Paramétrage du Réseau</h3>
                         <input type="text" id="seq-name" placeholder="Nom de la séquence" class="w-full border p-3 mb-4 rounded font-bold bg-slate-50">
                         <div id="tasks-list" class="space-y-2"></div>
-                        <button onclick="addTaskRow()" class="mt-4 text-blue-600 text-xs font-bold">+ Ajouter une tâche</button>
+                        <button onclick="addTaskRow()" class="mt-4 text-blue-600 text-xs font-bold font-bold">+ Ajouter une tâche</button>
                         <button onclick="saveSequence()" class="w-full bg-slate-900 text-white py-3 rounded-xl font-bold mt-6 shadow-lg">Enregistrer le modèle</button>
                     </div>
-                    <div id="list-sequences" class="bg-white p-6 rounded-xl shadow border overflow-auto"></div>
+                    <div id="list-sequences" class="bg-white p-6 rounded-xl shadow border overflow-auto space-y-2" id="list-sequences"></div>
                 </div>
             </div>
 
             <div id="tab-issues" class="tab-content">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 h-full">
                     <div class="bg-white p-6 rounded-xl shadow border">
-                        <h3 class="font-bold mb-4 text-red-600">Nouveau Bloquant</h3>
-                        <textarea id="issue-desc" placeholder="Désignation du problème..." class="w-full border p-3 mb-4 rounded h-32 bg-slate-50"></textarea>
-                        <button onclick="saveIssue()" class="w-full bg-red-600 text-white py-4 rounded-xl font-bold shadow-lg">Ajouter à la base</button>
+                        <h3 class="font-bold mb-4 text-red-600 uppercase text-xs">Nouveau Bloquant</h3>
+                        <textarea id="issue-desc" placeholder="Problème technique..." class="w-full border p-3 mb-4 rounded h-32 bg-slate-50"></textarea>
+                        <button onclick="saveIssue()" class="w-full bg-red-600 text-white py-4 rounded-xl font-bold shadow-lg">Enregistrer</button>
                     </div>
-                    <div id="list-issues-full" class="bg-white p-6 rounded-xl shadow border overflow-auto space-y-2"></div>
+                    <div id="list-issues-full" class="bg-white p-6 rounded-xl shadow border overflow-auto space-y-2 h-[500px]"></div>
                 </div>
             </div>
 
@@ -103,9 +102,13 @@
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-            document.getElementById('tab-' + tabId).classList.add('active');
-            document.getElementById('btn-' + tabId).classList.add('active');
-            document.getElementById('current-tab-title').innerText = document.getElementById('btn-' + tabId).innerText;
+            const targetTab = document.getElementById('tab-' + tabId);
+            const targetBtn = document.getElementById('btn-' + tabId);
+            if(targetTab && targetBtn) {
+                targetTab.classList.add('active');
+                targetBtn.classList.add('active');
+                document.getElementById('current-tab-title').innerText = targetBtn.innerText;
+            }
         }
     </script>
     <script type="module" src="app.js"></script>
